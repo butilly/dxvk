@@ -246,7 +246,14 @@ namespace dxvk {
       *ppTexture2D = texture.ref();
       return S_OK;
     } catch (const DxvkError& e) {
-      Logger::err(e.message());
+      Logger::err(str::format("D3D11: CreateTexture2D failed: ", e.message(),
+        "\n  extent: ", desc.Width, "x", desc.Height,
+        "\n  layers: ", desc.ArraySize, " mips: ", desc.MipLevels,
+        "\n  format: ", desc.Format,
+        "\n  samples: ", desc.SampleDesc.Count, " quality: ", desc.SampleDesc.Quality,
+        "\n  usage: ", desc.Usage,
+        "\n  bind: ", std::hex, desc.BindFlags,
+        " cpu: ", desc.CPUAccessFlags, " misc: ", desc.MiscFlags));
       return E_INVALIDARG;
     }
   }
