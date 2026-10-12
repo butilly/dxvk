@@ -56,6 +56,12 @@ namespace dxvk {
 
       if (!std::exchange(m_initialized, true)) {
 #ifdef _WIN32
+        // This diagnostic uses the debug-string channel captured by Wine's
+        // SEH trace when the normal DXVK output is absent from the report.
+        m_gtfoDebugOutput = env::getExeBaseName() == "GTFO";
+        if (m_gtfoDebugOutput)
+          ::OutputDebugStringA("GTFO-DXVK: texture allocation diagnostic active\n");
+
         HMODULE ntdll = GetModuleHandleA("ntdll.dll");
 
         if (ntdll)
@@ -78,6 +84,11 @@ namespace dxvk {
 
         if (!adjusted.empty()) {
 #ifdef _WIN32
+          // Keep shader-level debug/trace traffic out of the exception log.
+          // Preserve the normal logger and all resource-creation behaviour.
+          if (m_gtfoDebugOutput && level >= LogLevel::Info)
+            ::OutputDebugStringA(("GTFO-DXVK: " + adjusted).c_str());
+
           if (m_wineLogOutput) {
             // __wine_dbg_output tries to buffer lines up to 1020 characters
             // including null terminator, and will cause a hang if we submit

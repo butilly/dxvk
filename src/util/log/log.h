@@ -59,6 +59,7 @@ namespace dxvk {
     bool              m_initialized = false;
 #ifdef _WIN32
     PFN_wineLogOutput m_wineLogOutput = nullptr;
+    bool             m_gtfoDebugOutput = false;
 #endif
 
     void emitMsg(LogLevel level, const std::string& message);
