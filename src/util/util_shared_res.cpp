@@ -1,11 +1,27 @@
 #include "util_shared_res.h"
 #include "log/log.h"
+#include "util_env.h"
+
+#include <atomic>
 
 #ifdef _WIN32
 #include <winioctl.h>
 #endif
 
 namespace dxvk {
+
+  void traceSharedResource(const char* operation, int32_t status,
+      uintptr_t handle, uint32_t metadataSize) {
+    static const bool enabled = env::getExeName() == "Woodo.exe";
+    static std::atomic<uint32_t> count { 0 };
+    if (!enabled || count.load(std::memory_order_relaxed) >= 64)
+      return;
+    if (count.fetch_add(1, std::memory_order_relaxed) >= 64)
+      return;
+
+    Logger::info(str::format("GN-DXVK-SHARE v1 op=", operation,
+      " status=", status, " handle=", handle, " metadataSize=", metadataSize));
+  }
 
 #ifdef _WIN32
   #define IOCTL_SHARED_GPU_RESOURCE_OPEN             CTL_CODE(FILE_DEVICE_VIDEO, 1, METHOD_BUFFERED, FILE_WRITE_ACCESS)

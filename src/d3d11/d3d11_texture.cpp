@@ -793,7 +793,9 @@ namespace dxvk {
     escape.PrivateDriverDataSize = sizeof(desc);
     escape.hContext = m_image->storage()->kmtLocal();
 
-    if (!D3DKMTEscape(&escape))
+    const auto status = D3DKMTEscape(&escape);
+    traceSharedResource("export-metadata", status, escape.hContext, sizeof(desc));
+    if (!status)
       return;
 
     /* try the legacy Proton shared resource implementation */
