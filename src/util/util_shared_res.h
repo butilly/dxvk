@@ -8,6 +8,10 @@
 
 namespace dxvk {
 
+    // Bounded, per-executable diagnostics for the D3DKMT sharing transition.
+    void traceSharedResource(const char* operation, int32_t status,
+      uintptr_t handle, uint32_t metadataSize);
+
     HANDLE openKmtHandle(HANDLE kmt_handle);
 
     bool setSharedMetadata(HANDLE handle, void *buf, uint32_t bufSize);

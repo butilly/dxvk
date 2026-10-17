@@ -1458,7 +1458,10 @@ namespace dxvk {
     query.pPrivateRuntimeData = &d3dkmt;
     query.PrivateRuntimeDataSize = sizeof(d3dkmt);
 
-    if (D3DKMTQueryResourceInfo(&query)) {
+    const auto queryStatus = D3DKMTQueryResourceInfo(&query);
+    traceSharedResource("query-kmt", queryStatus,
+      reinterpret_cast<uintptr_t>(hResource), query.PrivateRuntimeDataSize);
+    if (queryStatus) {
       Logger::warn(str::format("D3D11Device::OpenSharedResource: Failed to query resource: ", hResource));
     } else if (query.PrivateRuntimeDataSize < sizeof(d3dkmt.dxgi) || query.PrivateRuntimeDataSize > sizeof(d3dkmt)) {
       Logger::warn(str::format("D3D11Device::OpenSharedResource: Unexpected size: ", query.PrivateRuntimeDataSize));
@@ -1472,7 +1475,10 @@ namespace dxvk {
       open.pPrivateRuntimeData = &d3dkmt;
       open.PrivateRuntimeDataSize = query.PrivateRuntimeDataSize;
 
-      if (D3DKMTOpenResource2(&open)) {
+      const auto openStatus = D3DKMTOpenResource2(&open);
+      traceSharedResource("open-kmt", openStatus,
+        reinterpret_cast<uintptr_t>(hResource), open.PrivateRuntimeDataSize);
+      if (openStatus) {
         Logger::warn(str::format("D3D11Device::OpenSharedResource: Failed to open resource: ", hResource));
       } else {
         D3DKMT_DESTROYALLOCATION destroy = { };
@@ -1507,6 +1513,8 @@ namespace dxvk {
         try {
           const Com<D3D11Texture2D> texture = new D3D11Texture2D(this, &desc, nullptr, hResource);
           texture->GetCommonTexture()->GetImage()->setKeyedMutex(std::move(mutex));
+          traceSharedResource("import-kmt", S_OK,
+            reinterpret_cast<uintptr_t>(hResource), query.PrivateRuntimeDataSize);
           texture->QueryInterface(ReturnedInterface, ppResource);
           return S_OK;
         }
