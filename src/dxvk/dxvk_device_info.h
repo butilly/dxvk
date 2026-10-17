@@ -394,6 +394,7 @@ namespace dxvk {
 
     bool                                  m_hasMeshShader = false;
     bool                                  m_hasFmask = false;
+    bool                                  m_woodoD3D11Compat = false;
 
     std::vector<const VkExtensionProperties*> m_extensionList;
 
