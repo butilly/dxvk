@@ -1074,9 +1074,8 @@ namespace dxvk {
         logMemoryStats();
       }
     } else {
-      allocation = createAllocation(
-        new DxvkSparsePageTable(m_device, createInfo, buffer),
-        allocationInfo);
+      auto pageTable = new DxvkSparsePageTable(m_device, createInfo, buffer);
+      allocation = allocateSparsePageTable(pageTable, allocationInfo);
     }
 
     if (!allocation) {
@@ -1223,7 +1222,7 @@ namespace dxvk {
           allocation->m_sparsePageTable = pageTable.release();
       } else {
         // Just need a page table, but no memory
-        allocation = createAllocation(pageTable.release(), allocationInfo);
+        allocation = allocateSparsePageTable(pageTable.release(), allocationInfo);
       }
     }
 
@@ -1306,6 +1305,8 @@ namespace dxvk {
     const VkBufferCreateInfo&         createInfo,
     const DxvkAllocationInfo&         allocationInfo,
     const DxvkBufferImportInfo&       importInfo) {
+    std::lock_guard lock(m_mutex);
+
     Rc<DxvkResourceAllocation> allocation = m_allocationPool.create(this, nullptr);
     allocation->m_flags.set(DxvkAllocationFlag::Imported);
     allocation->m_resourceCookie = allocationInfo.resourceCookie;
@@ -1325,6 +1326,8 @@ namespace dxvk {
     const VkImageCreateInfo&          createInfo,
     const DxvkAllocationInfo&         allocationInfo,
           VkImage                     imageHandle) {
+    std::lock_guard lock(m_mutex);
+
     Rc<DxvkResourceAllocation> allocation = m_allocationPool.create(this, nullptr);
     allocation->m_flags.set(DxvkAllocationFlag::Imported);
     allocation->m_resourceCookie = allocationInfo.resourceCookie;
@@ -1583,9 +1586,11 @@ namespace dxvk {
   }
 
 
-  DxvkResourceAllocation* DxvkMemoryAllocator::createAllocation(
+  DxvkResourceAllocation* DxvkMemoryAllocator::allocateSparsePageTable(
           DxvkSparsePageTable*  sparsePageTable,
     const DxvkAllocationInfo&   allocationInfo) {
+    std::lock_guard lock(m_mutex);
+
     auto allocation = m_allocationPool.create(this, nullptr);
     allocation->m_resourceCookie = allocationInfo.resourceCookie;
     allocation->m_sparsePageTable = sparsePageTable;
