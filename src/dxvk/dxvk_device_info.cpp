@@ -7,6 +7,7 @@
 #include "dxvk_device_info.h"
 #include "dxvk_instance.h"
 #include "dxvk_limits.h"
+#include "../util/util_env.h"
 
 namespace dxvk {
 
@@ -104,6 +105,12 @@ namespace dxvk {
           VkPhysicalDevice            adapter,
     const VkDeviceCreateInfo*         deviceInfo,
           bool                        safeMode) {
+    // Woodo uses D3D11. Its resource buffers are normalized to 32-bit
+    // elements by dxbc-spirv; the D3D9 SWVP path requiring byte storage
+    // is not used. Keep the requirement for D3D9 and every other app.
+    m_woodoD3D11Compat = env::getExeName() == "Woodo.exe"
+      && !instance.flags().test(DxvkInstanceFlag::ClientApiIsD3D9);
+
     // Can't query anything on a Vulkan 1.0 device
     auto vk = instance.vki();
     vk->vkGetPhysicalDeviceProperties(adapter, &m_properties.core.properties);
@@ -121,6 +128,17 @@ namespace dxvk {
 
     enableFeaturesAndExtensions();
     enableQueues();
+
+    if (m_woodoD3D11Compat) {
+      Logger::info(str::format("GN-DXVK-COMPAT v2 storageBuffer8BitAccess=",
+        m_featuresEnabled.vk12.storageBuffer8BitAccess,
+        " optional-for-d3d11; shaderInt8=", m_featuresEnabled.vk12.shaderInt8));
+      // Report all remaining requirements at once, without bypassing them.
+      for (const auto& f : getFeatureList()) {
+        if (f.featureRequired && !*f.featureEnabled)
+          Logger::info(str::format("GN-DXVK-COMPAT v2 missing-required=", f.readableName));
+      }
+    }
   }
 
 
@@ -896,7 +914,7 @@ namespace dxvk {
 
       ENABLE_FEATURE(vk12, bufferDeviceAddress, true),
       ENABLE_FEATURE(vk12, descriptorIndexing, true),
-      ENABLE_FEATURE(vk12, storageBuffer8BitAccess, true),
+      ENABLE_FEATURE(vk12, storageBuffer8BitAccess, !m_woodoD3D11Compat),
       ENABLE_FEATURE(vk12, storagePushConstant8, false),
       ENABLE_FEATURE(vk12, shaderUniformTexelBufferArrayDynamicIndexing, false),
       ENABLE_FEATURE(vk12, shaderStorageTexelBufferArrayDynamicIndexing, false),
