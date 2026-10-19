@@ -17,8 +17,6 @@ namespace dxvk {
     m_shaderStages  (util::shaderStages(createInfo.stages)),
     m_sharingMode   (device->getSharingMode()),
     m_info          (createInfo) {
-    m_allocator->registerResource(this);
-
     // Assign debug name to buffer
     if (device->debugFlags().test(DxvkDebugFlag::Capture)) {
       m_debugName = createDebugName(createInfo.debugName);
@@ -31,7 +29,14 @@ namespace dxvk {
     m_info.usage |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
 
     // Create and assign actual buffer resource
-    assignStorage(allocateStorage());
+    auto storage = allocateStorage();
+    if (!storage)
+      throw DxvkOutOfMemory("DxvkBuffer: Out of memory creating backing storage");
+
+    assignStorage(std::move(storage));
+
+    // Do not leave a dangling entry if resource creation throws.
+    m_allocator->registerResource(this);
   }
 
 

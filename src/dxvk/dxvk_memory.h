@@ -1398,6 +1398,10 @@ namespace dxvk {
     uint32_t m_memTypeCount = 0u;
     uint32_t m_memHeapCount = 0u;
 
+    bool m_allocationDiagnostic = false;
+    uint32_t m_liveDeviceAllocations = 0u;
+    std::array<uint32_t, VK_MAX_MEMORY_TYPES> m_allocationFailureLogs = { };
+
     std::array<DxvkMemoryType, VK_MAX_MEMORY_TYPES> m_memTypes = { };
     std::array<DxvkMemoryHeap, VK_MAX_MEMORY_HEAPS> m_memHeaps = { };
 

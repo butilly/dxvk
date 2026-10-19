@@ -394,6 +394,7 @@ namespace dxvk {
 
     bool                                  m_hasMeshShader = false;
     bool                                  m_hasFmask = false;
+    bool                                  m_requireSmallStorage = true;
 
     std::vector<const VkExtensionProperties*> m_extensionList;
 

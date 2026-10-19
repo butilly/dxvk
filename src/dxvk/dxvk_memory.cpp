@@ -3,6 +3,7 @@
 #include <sstream>
 
 #include "../util/util_bit.h"
+#include "../util/util_env.h"
 
 #include "dxvk_device.h"
 #include "dxvk_memory.h"
@@ -740,6 +741,10 @@ namespace dxvk {
 
   DxvkMemoryAllocator::DxvkMemoryAllocator(DxvkDevice* device)
   : m_device(device), m_sharingModeInfo(m_device->getSharingMode()) {
+    m_allocationDiagnostic = env::getExeName() == "The Witch's Bakery.exe";
+    if (m_allocationDiagnostic)
+      Logger::info("GN-DXVK-ALLOC diagnostic-v1: allocation results enabled; allocation policy unchanged");
+
     VkPhysicalDeviceMemoryProperties memInfo = m_device->adapter()->memoryProperties();
 
     m_memTypeCount = memInfo.memoryTypeCount;
@@ -1394,10 +1399,29 @@ namespace dxvk {
     DxvkDeviceMemory result = { };
     result.size = size;
 
-    if (vk->vkAllocateMemory(vk->device(), &memoryInfo, nullptr, &result.memory)) {
+    VkResult allocationResult = vk->vkAllocateMemory(vk->device(), &memoryInfo, nullptr, &result.memory);
+    if (allocationResult != VK_SUCCESS) {
       freeEmptyChunksInHeap(*type.heap, VkDeviceSize(-1), high_resolution_clock::time_point());
 
-      if (vk->vkAllocateMemory(vk->device(), &memoryInfo, nullptr, &result.memory))
+      VkResult retryResult = vk->vkAllocateMemory(vk->device(), &memoryInfo, nullptr, &result.memory);
+
+      // The normal OOM report loses both Vulkan results. Bound diagnostics per
+      // memory type so fallback types remain visible without a retry log storm.
+      if (m_allocationDiagnostic && m_allocationFailureLogs[type.index] < 8u) {
+        uint32_t record = ++m_allocationFailureLogs[type.index];
+        auto stats = getMemoryStats(type.heap->index);
+        Logger::warn(str::format("GN-DXVK-ALLOC: record=", record,
+          " op=vkAllocateMemory first=", allocationResult, " retry=", retryResult,
+          " bytes=", size, " type=", type.index, " heap=", type.heap->index,
+          " properties=", type.properties.propertyFlags, " flags=", memoryFlags.flags,
+          " chained=", next != nullptr, " liveDxvkAllocations=", m_liveDeviceAllocations,
+          " maxMemoryAllocationCount=", m_device->properties().core.properties.limits.maxMemoryAllocationCount,
+          " allocatedBytes=", stats.memoryAllocated, " usedBytes=", stats.memoryUsed,
+          " budgetBytes=", type.heap->memoryBudget,
+          " enforceBudget=", type.heap->enforceBudget));
+      }
+
+      if (retryResult != VK_SUCCESS)
         return DxvkDeviceMemory();
     }
 
@@ -1453,6 +1477,7 @@ namespace dxvk {
       assignMemoryDebugName(result, type);
 
     type.stats.memoryAllocated += size;
+    m_liveDeviceAllocations += 1u;
     return result;
   }
 
@@ -1629,6 +1654,7 @@ namespace dxvk {
     vk->vkFreeMemory(vk->device(), memory.memory, nullptr);
 
     type.stats.memoryAllocated -= memory.size;
+    m_liveDeviceAllocations -= 1u;
   }
 
 
