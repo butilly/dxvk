@@ -124,8 +124,6 @@ namespace dxvk {
     m_properties    (memFlags),
     m_shaderStages  (util::shaderStages(createInfo.stages)),
     m_info          (createInfo) {
-    m_allocator->registerResource(this);
-
     copyFormatList(createInfo.viewFormatCount, createInfo.viewFormats);
     m_unifiedLayoutAvailable = device->features().khrUnifiedImageLayouts.unifiedImageLayouts;
 
@@ -157,7 +155,14 @@ namespace dxvk {
     m_globalLayout = (m_info.sharing.mode != DxvkSharedHandleMode::Import)
       ? m_info.initialLayout : m_info.layout;
 
-    assignStorage(allocateStorage());
+    auto storage = allocateStorage();
+    if (!storage)
+      throw DxvkOutOfMemory("DxvkImage: Out of memory creating backing storage");
+
+    assignStorage(std::move(storage));
+
+    // Do not leave a dangling entry if resource creation throws.
+    m_allocator->registerResource(this);
   }
 
 
