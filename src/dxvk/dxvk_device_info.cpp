@@ -119,6 +119,15 @@ namespace dxvk {
 
     disableUnusedFeatures(instance, safeMode);
 
+    // D3D9 SWVP writes packed 8/16-bit vertex elements. D3D11 raw and
+    // structured buffers are normalized to 32-bit elements by dxbc-spirv.
+    // Keep this compatibility exception scoped to the affected D3D11 app.
+    m_requireSmallStorage = instance.flags().test(DxvkInstanceFlag::ClientApiIsD3D9)
+      || env::getExeName() != "The Witch's Bakery.exe";
+
+    if (!m_requireSmallStorage)
+      Logger::info("GN-DXVK-COMPAT: D3D11 32-bit storage baseline; allocation guards retained");
+
     enableFeaturesAndExtensions();
     enableQueues();
   }
@@ -891,12 +900,12 @@ namespace dxvk {
       ENABLE_FEATURE(core.features, wideLines, false),
 
       ENABLE_FEATURE(vk11, shaderDrawParameters, true),
-      ENABLE_FEATURE(vk11, storageBuffer16BitAccess, true),
+      ENABLE_FEATURE(vk11, storageBuffer16BitAccess, m_requireSmallStorage),
       ENABLE_FEATURE(vk11, storagePushConstant16, false),
 
       ENABLE_FEATURE(vk12, bufferDeviceAddress, true),
       ENABLE_FEATURE(vk12, descriptorIndexing, true),
-      ENABLE_FEATURE(vk12, storageBuffer8BitAccess, true),
+      ENABLE_FEATURE(vk12, storageBuffer8BitAccess, m_requireSmallStorage),
       ENABLE_FEATURE(vk12, storagePushConstant8, false),
       ENABLE_FEATURE(vk12, shaderUniformTexelBufferArrayDynamicIndexing, false),
       ENABLE_FEATURE(vk12, shaderStorageTexelBufferArrayDynamicIndexing, false),

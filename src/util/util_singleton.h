@@ -20,8 +20,11 @@ public:
   Rc<T> acquire(Args... constantArgs) {
     std::lock_guard lock(m_mutex);
 
-    if (!(m_useCount++))
+    if (!m_useCount)
       m_object = new T(constantArgs...);
+
+    // A failed constructor must leave the singleton available for retry.
+    m_useCount++;
 
     return m_object;
   }
