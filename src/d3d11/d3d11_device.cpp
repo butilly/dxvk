@@ -111,6 +111,9 @@ namespace dxvk {
 
       *ppBuffer = buffer.ref();
       return S_OK;
+    } catch (const DxvkOutOfMemory& e) {
+      Logger::err(e.message());
+      return E_OUTOFMEMORY;
     } catch (const DxvkError& e) {
       Logger::err(e.message());
       return E_INVALIDARG;
@@ -157,6 +160,9 @@ namespace dxvk {
       m_initializer->InitTexture(texture->GetCommonTexture(), pInitialData);
       *ppTexture1D = texture.ref();
       return S_OK;
+    } catch (const DxvkOutOfMemory& e) {
+      Logger::err(e.message());
+      return E_OUTOFMEMORY;
     } catch (const DxvkError& e) {
       Logger::err(e.message());
       return E_INVALIDARG;
@@ -245,6 +251,9 @@ namespace dxvk {
       m_initializer->InitTexture(texture->GetCommonTexture(), pInitialData);
       *ppTexture2D = texture.ref();
       return S_OK;
+    } catch (const DxvkOutOfMemory& e) {
+      Logger::err(e.message());
+      return E_OUTOFMEMORY;
     } catch (const DxvkError& e) {
       Logger::err(e.message());
       return E_INVALIDARG;
@@ -332,6 +341,9 @@ namespace dxvk {
       m_initializer->InitTexture(texture->GetCommonTexture(), pInitialData);
       *ppTexture3D = texture.ref();
       return S_OK;
+    } catch (const DxvkOutOfMemory& e) {
+      Logger::err(e.message());
+      return E_OUTOFMEMORY;
     } catch (const DxvkError& e) {
       Logger::err(e.message());
       return E_INVALIDARG;

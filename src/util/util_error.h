@@ -27,5 +27,12 @@ namespace dxvk {
     std::string m_message;
     
   };
+
+  // Resource creation ran out of backing memory, rather than receiving
+  // an invalid resource description. API frontends can report this separately.
+  class DxvkOutOfMemory : public DxvkError {
+  public:
+    using DxvkError::DxvkError;
+  };
   
 }
