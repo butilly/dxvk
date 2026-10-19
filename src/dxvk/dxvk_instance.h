@@ -191,6 +191,10 @@ namespace dxvk {
     DxvkDebugFlags debugFlags() const {
       return m_debugFlags;
     }
+
+    DxvkInstanceFlags flags() const {
+      return m_flags;
+    }
     
   private:
 
@@ -204,6 +208,7 @@ namespace dxvk {
     DxvkExtensionList         m_extensionList;
 
     DxvkDebugFlags            m_debugFlags = 0u;
+    DxvkInstanceFlags         m_flags = 0u;
 
     VkDebugUtilsMessengerEXT  m_messenger = VK_NULL_HANDLE;
 
