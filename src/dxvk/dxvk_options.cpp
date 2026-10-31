@@ -14,7 +14,7 @@ namespace dxvk {
     enableImplicitResolves = config.getOption<bool>   ("dxvk.enableImplicitResolves", true);
     enableNvRawAccessChains = config.getOption<bool>  ("dxvk.enableNvRawAccessChains", true);
     enableNvCudaInterop   = config.getOption<bool>    ("dxvk.enableNvCudaInterop",    true);
-    enablePresentTiming   = config.getOption<bool>    ("dxvk.enablePresentTiming",    false);
+    enablePresentTiming   = config.getOption<bool>    ("dxvk.enablePresentTiming",    true);
     trackPipelineLifetime = config.getOption<Tristate>("dxvk.trackPipelineLifetime",  Tristate::Auto);
     useRawSsbo            = config.getOption<Tristate>("dxvk.useRawSsbo",             Tristate::Auto);
     hud                   = config.getOption<std::string>("dxvk.hud", "");
@@ -24,6 +24,7 @@ namespace dxvk {
     disableNvLowLatency2  = config.getOption<Tristate>("dxvk.disableNvLowLatency2",   Tristate::Auto);
     hideIntegratedGraphics = config.getOption<bool>   ("dxvk.hideIntegratedGraphics", false);
     zeroMappedMemory      = config.getOption<bool>    ("dxvk.zeroMappedMemory",       false);
+    zeroShaderScratchMemory = config.getOption<bool>  ("dxvk.zeroShaderScratchMemory", false);
     allowFse              = config.getOption<bool>    ("dxvk.allowFse",               false);
     deviceFilter          = config.getOption<std::string>("dxvk.deviceFilter",        "");
     lowerSinCos           = config.getOption<Tristate>("dxvk.lowerSinCos",            Tristate::Auto);
