@@ -926,8 +926,7 @@ namespace dxvk {
     void Flush();
     void FlushAndSync9On12();
 
-    void BeginFrame(Rc<DxvkLatencyTracker> LatencyTracker, uint64_t FrameId);
-    void EndFrame(Rc<DxvkLatencyTracker> LatencyTracker);
+    void EndFrame();
 
     template <uint32_t Index>
     void UpdateAnyColorWrites();
@@ -1663,7 +1662,6 @@ namespace dxvk {
 
     Rc<sync::Fence>                 m_submissionFence;
     uint64_t                        m_submissionId = 0ull;
-    DxvkSubmitStatus                m_submitStatus;
 
     uint64_t                        m_flushSeqNum = 0ull;
     GpuFlushTracker                 m_flushTracker;

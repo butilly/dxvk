@@ -76,7 +76,8 @@ namespace dxvk {
     HANDLE_EXT(nvLowLatency2);                     \
     HANDLE_EXT(nvRawAccessChains);                 \
     HANDLE_EXT(nvxBinaryImport);                   \
-    HANDLE_EXT(nvxImageViewHandle);
+    HANDLE_EXT(nvxImageViewHandle);                \
+    HANDLE_EXT(intelDeviceInfo);
 
   #define EXTENSIONS_WITH_PROPERTIES               \
     HANDLE_EXT(extConservativeRasterization);      \
@@ -96,7 +97,8 @@ namespace dxvk {
     HANDLE_EXT(khrMaintenance6);                   \
     HANDLE_EXT(khrMaintenance7);                   \
     HANDLE_EXT(khrMaintenance9);                   \
-    HANDLE_EXT(khrMaintenance10);
+    HANDLE_EXT(khrMaintenance10);                  \
+    HANDLE_EXT(intelDeviceInfo);
 
 
   DxvkDeviceCapabilities::DxvkDeviceCapabilities(
@@ -553,7 +555,10 @@ namespace dxvk {
     }
 
     // Reflex is broken on 32-bit
-    if (env::is32BitHostPlatform())
+    bool enableReflex = !env::is32BitHostPlatform();
+    applyTristate(enableReflex, instance.options().enableNvLowLatency2);
+
+    if (!enableReflex)
       m_featuresSupported.nvLowLatency2 = VK_FALSE;
 
     // EXT_multi_draw is broken on proprietary qcom on some devices
@@ -1114,6 +1119,9 @@ namespace dxvk {
       /* CUDA interop extensions */
       ENABLE_EXT(nvxBinaryImport, false),
       ENABLE_EXT(nvxImageViewHandle, false),
+
+      /* Intel device info, used to detect the GPU architecture generation */
+      ENABLE_EXT(intelDeviceInfo, false),
     }};
 
     #undef ENABLE_FEATURE
