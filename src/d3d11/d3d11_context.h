@@ -780,7 +780,25 @@ namespace dxvk {
             VkImageLayout             OldLayout,
             VkImageLayout             NewLayout);
 
+    // Called with the context lock held, before presentation flushes.
+    void LogSceneDiagnosticFrame();
+
   protected:
+
+    bool m_sceneDiagnostic = false;
+    uint64_t m_sceneFrame = 0;
+    uint64_t m_sceneDraws = 0, m_sceneIndexed = 0, m_sceneIndirect = 0;
+    uint64_t m_sceneZero = 0, m_sceneNoVs = 0, m_sceneNoPs = 0;
+    uint64_t m_sceneNoRt = 0, m_sceneNoVp = 0, m_sceneLists = 0;
+    uint64_t m_sceneVsBinds = 0, m_scenePsBinds = 0;
+    uint64_t m_sceneNullVs = 0, m_sceneNullPs = 0;
+    uint64_t m_sceneFrameDraws = 0;
+    uint32_t m_sceneSamples = 0, m_sceneFrameSamples = 0;
+    const void* m_sceneVsCaller = nullptr;
+    const void* m_scenePsCaller = nullptr;
+
+    void LogSceneDiagnosticDraw(const char* kind, uint32_t count,
+      uint32_t instances, bool indexed, bool indirect, const void* caller);
 
     D3D11DeviceContextExt<ContextType>        m_contextExt;
     D3D11UserDefinedAnnotation<ContextType>   m_annotation;

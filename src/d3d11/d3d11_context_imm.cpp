@@ -230,6 +230,8 @@ namespace dxvk {
     D3D10DeviceLock lock = LockContext();
 
     auto commandList = static_cast<D3D11CommandList*>(pCommandList);
+    if (m_sceneDiagnostic)
+      ++m_sceneLists;
 
     // Reset dirty binding tracking before submitting any CS chunks.
     // This is needed so that any submission that might occur during

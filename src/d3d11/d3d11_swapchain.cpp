@@ -415,6 +415,7 @@ namespace dxvk {
     auto immediateContext = m_parent->GetContext();
     auto immediateContextLock = immediateContext->LockContext();
 
+    immediateContext->LogSceneDiagnosticFrame();
     immediateContext->EndFrame(m_latency);
     immediateContext->ExecuteFlush(GpuFlushType::ExplicitFlush,
       nullptr, m_parent->Is11on12Device());
