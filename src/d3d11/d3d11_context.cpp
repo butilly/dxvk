@@ -1,4 +1,5 @@
 #include <algorithm>
+#include "../util/util_env.h"
 
 #include "d3d11_context.h"
 #include "d3d11_context_def.h"
@@ -20,6 +21,10 @@ namespace dxvk {
     m_staging   (Device, StagingBufferSize),
     m_csFlags   (CsFlags),
     m_csChunk   (AllocCsChunk()) {
+    m_sceneDiagnostic = env::getExeName() == "sdhdship.exe";
+    if (m_sceneDiagnostic)
+      Logger::info(str::format("GN-scene context=", this, " deferred=", IsDeferred,
+        " enabled; API counters cumulative; samples bounded; no rendering overrides"));
     // Create local allocation cache with the same properties
     // that we will use for common dynamic buffer types
     uint32_t cachedDynamic = pParent->GetOptions()->cachedDynamicResources;
@@ -72,6 +77,108 @@ namespace dxvk {
   template<typename ContextType>
   D3D11CommonContext<ContextType>::~D3D11CommonContext() {
 
+  }
+
+
+  template<typename ContextType>
+  void D3D11CommonContext<ContextType>::LogSceneDiagnosticFrame() {
+    if (!m_sceneDiagnostic)
+      return;
+
+    if (m_sceneFrame < 3 || (m_sceneFrame % 300 == 0 && m_sceneFrame <= 36000)) {
+      Logger::info(str::format("GN-scene frame=", m_sceneFrame, " ctx=", this,
+        " draws=", m_sceneDraws, " indexed=", m_sceneIndexed, " indirect=", m_sceneIndirect,
+        " zero=", m_sceneZero, " noVS=", m_sceneNoVs, " noPS=", m_sceneNoPs,
+        " noRT=", m_sceneNoRt, " noViewport=", m_sceneNoVp, " executeLists=", m_sceneLists,
+        " vsBinds=", m_sceneVsBinds, " psBinds=", m_scenePsBinds,
+        " nullVS=", m_sceneNullVs, " nullPS=", m_sceneNullPs));
+    }
+    ++m_sceneFrame;
+    m_sceneFrameDraws = 0;
+    m_sceneFrameSamples = 0;
+  }
+
+
+  template<typename ContextType>
+  void D3D11CommonContext<ContextType>::LogSceneDiagnosticDraw(
+      const char* kind, uint32_t count, uint32_t instances,
+      bool indexed, bool indirect, const void* caller) {
+    if (!m_sceneDiagnostic)
+      return;
+
+    ++m_sceneDraws;
+    ++m_sceneFrameDraws;
+    m_sceneIndexed += indexed;
+    m_sceneIndirect += indirect;
+    m_sceneZero += !indirect && (!count || !instances);
+    m_sceneNoVs += !m_state.vs;
+    m_sceneNoPs += !m_state.ps;
+    uint32_t rtMask = 0;
+    for (uint32_t i = 0; i < m_state.om.rtvs.size(); i++)
+      rtMask |= uint32_t(m_state.om.rtvs[i] != nullptr) << i;
+    m_sceneNoRt += !rtMask;
+    m_sceneNoVp += !m_state.rs.numViewports;
+
+    // Spread samples across a frame and across the run, rather than
+    // consuming the entire log budget on startup or a shader-bind storm.
+    bool sample = IsDeferred
+      ? (m_sceneDraws <= 8 || m_sceneDraws % 4096 == 0)
+      : ((m_sceneFrame < 3 || m_sceneFrame % 300 == 0)
+        && m_sceneFrameSamples < 24
+        && (m_sceneFrameDraws <= 8 || m_sceneFrameDraws % 32 == 0));
+    if (!sample || m_sceneSamples >= 512)
+      return;
+    ++m_sceneSamples;
+    ++m_sceneFrameSamples;
+
+    const auto& vp = m_state.rs.viewports[0];
+    const auto& sc = m_state.rs.scissors[0];
+    D3D11_DEPTH_STENCIL_DESC depth = { };
+    depth.DepthEnable = TRUE;
+    depth.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
+    depth.DepthFunc = D3D11_COMPARISON_LESS;
+    if (m_state.om.dsState)
+      m_state.om.dsState->GetDesc(&depth);
+    D3D11_RASTERIZER_DESC raster = { };
+    raster.FillMode = D3D11_FILL_SOLID;
+    raster.CullMode = D3D11_CULL_BACK;
+    raster.DepthClipEnable = TRUE;
+    if (m_state.rs.state)
+      m_state.rs.state->GetDesc(&raster);
+    D3D11_BLEND_DESC blend = { };
+    for (auto& rt : blend.RenderTarget)
+      rt.RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+    if (m_state.om.cbState)
+      m_state.om.cbState->GetDesc(&blend);
+
+    uint32_t vsCb = 0, psCb = 0, psSrv = 0;
+    for (const auto& cb : m_state.cbv[D3D11ShaderType::eVertex].buffers)
+      vsCb += cb.buffer != nullptr;
+    for (const auto& cb : m_state.cbv[D3D11ShaderType::ePixel].buffers)
+      psCb += cb.buffer != nullptr;
+    for (const auto& srv : m_state.srv[D3D11ShaderType::ePixel].views)
+      psSrv += srv != nullptr;
+
+    Logger::info(str::format("GN-scene draw ctx=", this, " deferred=", IsDeferred,
+      " frame=", m_sceneFrame, " n=", m_sceneDraws, " api=", kind,
+      " count=", count, " instances=", instances, " caller=", caller,
+      " VS=", m_state.vs ? m_state.vs->GetCommonShader()->GetName() : "null",
+      " PS=", m_state.ps ? m_state.ps->GetCommonShader()->GetName() : "null",
+      " lastVSCaller=", m_sceneVsCaller, " lastPSCaller=", m_scenePsCaller,
+      " GS=", m_state.gs.ptr(), " HS=", m_state.hs.ptr(), " DS=", m_state.ds.ptr(),
+      " topology=", m_state.ia.primitiveTopology,
+      " layout=", m_state.ia.inputLayout.ptr(), " vb0=", m_state.ia.vertexBuffers[0].buffer.ptr(),
+      " stride0=", m_state.ia.vertexBuffers[0].stride, " ib=", m_state.ia.indexBuffer.buffer.ptr(),
+      " rtMask=", rtMask, " rt0=", m_state.om.rtvs[0].ptr(), " dsv=", m_state.om.dsv.ptr(),
+      " vpCount=", m_state.rs.numViewports, " vp=", vp.TopLeftX, ",", vp.TopLeftY,
+      ",", vp.Width, ",", vp.Height, ",", vp.MinDepth, ",", vp.MaxDepth,
+      " scissor=", raster.ScissorEnable, ",", m_state.rs.numScissors, ",",
+      sc.left, ",", sc.top, ",", sc.right, ",", sc.bottom,
+      " cull=", raster.CullMode, " depth=", depth.DepthEnable, ",", depth.DepthWriteMask, ",", depth.DepthFunc,
+      " stencil=", depth.StencilEnable, " blend0=", blend.RenderTarget[0].BlendEnable,
+      " writeMask0=", uint32_t(blend.RenderTarget[0].RenderTargetWriteMask),
+      " sampleMask=", m_state.om.sampleMask,
+      " cbVS=", vsCb, " cbPS=", psCb, " srvPS=", psSrv));
   }
 
 
@@ -998,6 +1105,7 @@ namespace dxvk {
   template<typename ContextType>
   void STDMETHODCALLTYPE D3D11CommonContext<ContextType>::DrawAuto() {
     D3D10DeviceLock lock = LockContext();
+    LogSceneDiagnosticDraw("DrawAuto", 0, 0, false, true, __builtin_return_address(0));
 
     D3D11Buffer* buffer = m_state.ia.vertexBuffers[0].buffer.ptr();
 
@@ -1038,6 +1146,7 @@ namespace dxvk {
           UINT            VertexCount,
           UINT            StartVertexLocation) {
     D3D10DeviceLock lock = LockContext();
+    LogSceneDiagnosticDraw("Draw", VertexCount, 1, false, false, __builtin_return_address(0));
 
     if (unlikely(!VertexCount))
       return;
@@ -1058,6 +1167,7 @@ namespace dxvk {
           UINT            StartIndexLocation,
           INT             BaseVertexLocation) {
     D3D10DeviceLock lock = LockContext();
+    LogSceneDiagnosticDraw("DrawIndexed", IndexCount, 1, true, false, __builtin_return_address(0));
 
     if (unlikely(!IndexCount))
       return;
@@ -1080,6 +1190,7 @@ namespace dxvk {
           UINT            StartVertexLocation,
           UINT            StartInstanceLocation) {
     D3D10DeviceLock lock = LockContext();
+    LogSceneDiagnosticDraw("DrawInstanced", VertexCountPerInstance, InstanceCount, false, false, __builtin_return_address(0));
 
     if (unlikely(!VertexCountPerInstance || !InstanceCount))
       return;
@@ -1102,6 +1213,7 @@ namespace dxvk {
           INT             BaseVertexLocation,
           UINT            StartInstanceLocation) {
     D3D10DeviceLock lock = LockContext();
+    LogSceneDiagnosticDraw("DrawIndexedInstanced", IndexCountPerInstance, InstanceCount, true, false, __builtin_return_address(0));
 
     if (unlikely(!IndexCountPerInstance || !InstanceCount))
       return;
@@ -1122,6 +1234,7 @@ namespace dxvk {
           ID3D11Buffer*   pBufferForArgs,
           UINT            AlignedByteOffsetForArgs) {
     D3D10DeviceLock lock = LockContext();
+    LogSceneDiagnosticDraw("DrawIndexedInstancedIndirect", 0, 0, true, true, __builtin_return_address(0));
     SetDrawBuffers(pBufferForArgs, nullptr);
 
     if (unlikely(HasDirtyGraphicsBindings()))
@@ -1157,6 +1270,7 @@ namespace dxvk {
           ID3D11Buffer*   pBufferForArgs,
           UINT            AlignedByteOffsetForArgs) {
     D3D10DeviceLock lock = LockContext();
+    LogSceneDiagnosticDraw("DrawInstancedIndirect", 0, 0, false, true, __builtin_return_address(0));
     SetDrawBuffers(pBufferForArgs, nullptr);
 
     if (unlikely(HasDirtyGraphicsBindings()))
@@ -1396,6 +1510,15 @@ namespace dxvk {
     D3D10DeviceLock lock = LockContext();
 
     auto shader = static_cast<D3D11VertexShader*>(pVertexShader);
+    if (m_sceneDiagnostic) {
+      ++m_sceneVsBinds;
+      m_sceneNullVs += !shader;
+      m_sceneVsCaller = __builtin_return_address(0);
+      if (m_sceneVsBinds <= 8 || (m_sceneVsBinds % 4096 == 0 && m_sceneVsBinds <= 1048576))
+        Logger::info(str::format("GN-scene VSBind ctx=", this, " n=", m_sceneVsBinds,
+          " nullTotal=", m_sceneNullVs, " caller=", m_sceneVsCaller,
+          " shader=", shader ? shader->GetCommonShader()->GetName() : "null"));
+    }
     SetClassInstances<D3D11ShaderType::eVertex>(
       shader ? shader->GetCommonShader() : nullptr, ppClassInstances, NumClassInstances);
 
@@ -1940,6 +2063,15 @@ namespace dxvk {
     D3D10DeviceLock lock = LockContext();
 
     auto shader = static_cast<D3D11PixelShader*>(pPixelShader);
+    if (m_sceneDiagnostic) {
+      ++m_scenePsBinds;
+      m_sceneNullPs += !shader;
+      m_scenePsCaller = __builtin_return_address(0);
+      if (m_scenePsBinds <= 8 || (m_scenePsBinds % 4096 == 0 && m_scenePsBinds <= 1048576))
+        Logger::info(str::format("GN-scene PSBind ctx=", this, " n=", m_scenePsBinds,
+          " nullTotal=", m_sceneNullPs, " caller=", m_scenePsCaller,
+          " shader=", shader ? shader->GetCommonShader()->GetName() : "null"));
+    }
     SetClassInstances<D3D11ShaderType::ePixel>(
       shader ? shader->GetCommonShader() : nullptr, ppClassInstances, NumClassInstances);
 
