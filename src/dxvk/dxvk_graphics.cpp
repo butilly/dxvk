@@ -176,7 +176,7 @@ namespace dxvk {
         && a.offset     == b.offset;
     }
 
-    for (uint32_t i = 0; i < viDivisorInfo.vertexBindingDivisorCount; i++) {
+    for (uint32_t i = 0; i < viDivisorInfo.vertexBindingDivisorCount && eq; i++) {
       const auto& a = viDivisors[i];
       const auto& b = other.viDivisors[i];
 
@@ -340,6 +340,8 @@ namespace dxvk {
             }
           }
         }
+
+        rtSampleCounts[i] = VkSampleCountFlagBits(state.ms.sampleCount());
       }
     }
 
@@ -361,21 +363,25 @@ namespace dxvk {
 
       if (rtDepthFormatInfo->aspectMask & VK_IMAGE_ASPECT_STENCIL_BIT)
         rtInfo.stencilAttachmentFormat = rtDepthFormat;
+
+      rtSamples.depthStencilAttachmentSamples = VkSampleCountFlagBits(state.ms.sampleCount());
     }
 
     // Set up multisample state based on shader info as well
     // as rasterization state and render target sample counts.
-    msInfo.rasterizationSamples = VkSampleCountFlagBits(state.ms.sampleCount());
+    bool useMixedSamples = device->canUseMixedSamples(shaders.fs);
 
-    if (!msInfo.rasterizationSamples) {
-      msInfo.rasterizationSamples = state.rs.sampleCount()
-        ? VkSampleCountFlagBits(state.rs.sampleCount())
-        : VK_SAMPLE_COUNT_1_BIT;
-    }
+    msInfo.rasterizationSamples = state.determineRasterSamples(useMixedSamples);
 
     if (shaders.fs && shaders.fs->metadata().flags.test(DxvkShaderFlag::HasSampleRateShading)) {
       msInfo.sampleShadingEnable  = VK_TRUE;
       msInfo.minSampleShading     = 1.0f;
+    }
+
+    if (useMixedSamples && state.ms.sampleCount() && state.ms.sampleCount() != msInfo.rasterizationSamples) {
+      rtSamples.pNext = std::exchange(rtInfo.pNext, &rtSamples);
+      rtSamples.colorAttachmentCount = rtInfo.colorAttachmentCount;
+      rtSamples.pColorAttachmentSamples = rtSampleCounts.data();
     }
 
     // Alpha to coverage is not supported with sample mask exports.
@@ -403,13 +409,17 @@ namespace dxvk {
            && msInfo.minSampleShading         == other.msInfo.minSampleShading
            && msInfo.alphaToCoverageEnable    == other.msInfo.alphaToCoverageEnable
            && msInfo.alphaToOneEnable         == other.msInfo.alphaToOneEnable
+           && rtSamples.colorAttachmentCount  == other.rtSamples.colorAttachmentCount
+           && rtSamples.depthStencilAttachmentSamples == other.rtSamples.depthStencilAttachmentSamples
            && msSampleMask                    == other.msSampleMask
            && cbUseDynamicBlendConstants      == other.cbUseDynamicBlendConstants
            && cbUseDynamicAlphaToCoverage     == other.cbUseDynamicAlphaToCoverage
            && feedbackLoop                    == other.feedbackLoop;
 
-    for (uint32_t i = 0; i < rtInfo.colorAttachmentCount && eq; i++)
-      eq = rtColorFormats[i] == other.rtColorFormats[i];
+    for (uint32_t i = 0; i < rtInfo.colorAttachmentCount && eq; i++) {
+      eq = rtColorFormats[i] == other.rtColorFormats[i]
+        && rtSampleCounts[i] == other.rtSampleCounts[i];
+    }
 
     for (uint32_t i = 0; i < cbInfo.attachmentCount && eq; i++) {
       const auto& a = cbAttachments[i];
@@ -1457,16 +1467,16 @@ namespace dxvk {
     auto layout = m_layout.getLayout(DxvkPipelineLayoutType::Merged);
 
     DxvkShaderStageInfo stageInfo(m_device, layout);
-    stageInfo.addStage(VK_SHADER_STAGE_VERTEX_BIT, getShaderCode(*m_shaders.vs, key.shState.vsInfo), &key.scState.scInfo);
+    stageInfo.addStage(m_shaders.vs->metadata(), getShaderCode(*m_shaders.vs, key.shState.vsInfo), &key.scState.scInfo);
 
     if (m_shaders.tcs)
-      stageInfo.addStage(VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT, getShaderCode(*m_shaders.tcs, key.shState.tcsInfo), &key.scState.scInfo);
+      stageInfo.addStage(m_shaders.tcs->metadata(), getShaderCode(*m_shaders.tcs, key.shState.tcsInfo), &key.scState.scInfo);
     if (m_shaders.tes)
-      stageInfo.addStage(VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT, getShaderCode(*m_shaders.tes, key.shState.tesInfo), &key.scState.scInfo);
+      stageInfo.addStage(m_shaders.tes->metadata(), getShaderCode(*m_shaders.tes, key.shState.tesInfo), &key.scState.scInfo);
     if (m_shaders.gs)
-      stageInfo.addStage(VK_SHADER_STAGE_GEOMETRY_BIT, getShaderCode(*m_shaders.gs, key.shState.gsInfo), &key.scState.scInfo);
+      stageInfo.addStage(m_shaders.gs->metadata(), getShaderCode(*m_shaders.gs, key.shState.gsInfo), &key.scState.scInfo);
     if (m_shaders.fs)
-      stageInfo.addStage(VK_SHADER_STAGE_FRAGMENT_BIT, getShaderCode(*m_shaders.fs, key.shState.fsInfo), &key.scState.scInfo);
+      stageInfo.addStage(m_shaders.fs->metadata(), getShaderCode(*m_shaders.fs, key.shState.fsInfo), &key.scState.scInfo);
 
     VkPipelineCreateFlags2CreateInfo flags = { VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO };
 
@@ -1752,12 +1762,7 @@ namespace dxvk {
          << "  conservative:    " << (state.rs.conservativeMode() == VK_CONSERVATIVE_RASTERIZATION_MODE_DISABLED_EXT ? "no" : "yes") << std::endl;
 
     // Log multisample state
-    VkSampleCountFlags sampleCount = VK_SAMPLE_COUNT_1_BIT;
-
-    if (state.ms.sampleCount())
-      sampleCount = state.ms.sampleCount();
-    else if (state.rs.sampleCount())
-      sampleCount = state.rs.sampleCount();
+    VkSampleCountFlags sampleCount = state.determineRasterSamples(m_device->canUseMixedSamples(m_shaders.fs));
 
     sstr << "Sample count: " << sampleCount << " [0x" << std::hex << state.ms.sampleMask() << std::dec << "]" << std::endl
          << "  alphaToCoverage: " << (state.ms.enableAlphaToCoverage() ? "yes" : "no") << std::endl;

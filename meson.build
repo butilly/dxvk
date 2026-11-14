@@ -48,12 +48,9 @@ elif not cpp.check_header('spirv/unified1/spirv.hpp')
   error('Missing SPIRV-Headers')
 endif
 
-dep_displayinfo = dependency(
-  'libdisplay-info',
-  version: ['>= 0.0.0', '< 0.2.0'],
-  fallback: ['libdisplay-info', 'di_dep'],
-  default_options: ['default_library=static'],
-)
+dep_displayinfo = dependency('libdisplay-info',
+  fallback:         ['libdisplay-info', 'di_dep'],
+  default_options:  ['default_library=static', 'pnp-ids=auto', 'tools=disabled'])
 
 if platform == 'windows'
   dxvk_so_version = {'name_prefix': ''}
@@ -72,6 +69,15 @@ if platform == 'windows'
       # work properly as well as avoiding a memcpy from the Wine loader.
       '-Wl,--file-alignment=4096',
     ]
+
+    # Follow PE standards with 8 character name sections, some software that
+    # inspects our DLLs may otherwise crash. For dwarf2 symbols to work we
+    # need to keep the mingw defaults.
+    if not get_option('debug')
+      link_args += [
+        '-Wl,--disable-long-section-names',
+      ]
+    endif
 
     # Wine's built-in back traces only work with dwarf4 symbols
     if get_option('debug')

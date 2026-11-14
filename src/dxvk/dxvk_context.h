@@ -7,7 +7,6 @@
 #include "dxvk_descriptor_heap.h"
 #include "dxvk_descriptor_worker.h"
 #include "dxvk_implicit_resolve.h"
-#include "dxvk_latency.h"
 #include "dxvk_objects.h"
 #include "dxvk_queue.h"
 #include "dxvk_util.h"
@@ -68,40 +67,16 @@ namespace dxvk {
     void endFrame();
 
     /**
-     * \brief Begins latency tracking
-     *
-     * Notifies the beginning of a frame on the CS timeline
-     * an ensures that subsequent submissions are associated
-     * with the correct frame ID. Only one tracker can be
-     * active at any given time.
-     * \param [in] tracker Latency tracker object
-     * \param [in] frameId Current frame ID
-     */
-    void beginLatencyTracking(
-      const Rc<DxvkLatencyTracker>&     tracker,
-            uint64_t                    frameId);
-
-    /**
-     * \brief Ends latency tracking
-     *
-     * Notifies the end of the frame. Ignored if the
-     * tracker is not currently active.
-     * \param [in] tracker Latency tracker object
-     */
-    void endLatencyTracking(
-      const Rc<DxvkLatencyTracker>&     tracker);
-
-    /**
      * \brief Flushes command buffer
      * 
      * Transparently submits the current command
      * buffer and allocates a new one.
      * \param [in] reason Optional debug label describing the reason
-     * \param [out] status Submission feedback
+     * \param [in] submissionId Submission timeline
      */
     void flushCommandList(
       const VkDebugUtilsLabelEXT*       reason,
-            DxvkSubmitStatus*           status);
+            uint64_t                    submissionId);
 
     /**
      * \brief Synchronizes command list with WSI
@@ -332,6 +307,7 @@ namespace dxvk {
 
         case VK_SHADER_STAGE_FRAGMENT_BIT:
           m_state.gp.shaders.fs = std::move(shader);
+          m_flags.set(DxvkContextFlag::GpDirtyMultisampleState);
           break;
 
         case VK_SHADER_STAGE_COMPUTE_BIT:
@@ -1190,7 +1166,7 @@ namespace dxvk {
       auto& scState = pipeline == VK_PIPELINE_BIND_POINT_GRAPHICS
         ? m_state.gp.constants : m_state.cp.constants;
 
-      uint32_t dirtyMask = bit::bcndcpy(&scState.data[index], data, count);
+      uint32_t dirtyMask = bit::bcndcpy(&scState.data[index], data, count) << index;
 
       if (scState.mask & dirtyMask) {
         m_flags.set(pipeline == VK_PIPELINE_BIND_POINT_GRAPHICS
@@ -1400,10 +1376,6 @@ namespace dxvk {
     std::vector<Rc<DxvkImage>> m_nonDefaultLayoutImages;
 
     DxvkDescriptorCopyWorker m_descriptorWorker;
-
-    Rc<DxvkLatencyTracker>  m_latencyTracker;
-    uint64_t                m_latencyFrameId = 0u;
-    bool                    m_endLatencyTracking = false;
 
     DxvkImplicitResolveTracker  m_implicitResolves;
 
