@@ -10,9 +10,11 @@ namespace dxvk::sdhd {
 
   // Temporary, executable-gated API diagnostics. Counts describe API activity,
   // not visible pixels or GPU completion. Deferred calls are recordings only.
-  enum Event { Draw, Indexed, Indirect, Dispatch, VS, PS, Execute, Finish, Count };
+  enum Event { Draw, Indexed, Indirect, Dispatch, VS, PS, Execute, Finish,
+    MissingVS, ColorDraw, DepthDraw, OtherDraw, StateChange, NullVS, NullPS, Count };
   inline constexpr const char* names[] = {
-    "draw", "indexed", "indirect", "dispatch", "VS", "PS", "execute", "finish"
+    "draw", "indexed", "indirect", "dispatch", "VS", "PS", "execute", "finish",
+    "missing-vs", "color", "depth-only", "other", "state-change", "null-VS", "null-PS"
   };
   inline std::atomic<uint64_t> events[2][Count] = {};
   inline std::atomic<uint64_t> noVS[2] = {}, noPS[2] = {};
@@ -67,7 +69,13 @@ namespace dxvk::sdhd {
         " indirect=", events[d][Indirect].load(), " dispatch=", events[d][Dispatch].load(),
         " VS=", events[d][VS].load(), " PS=", events[d][PS].load(),
         " execute=", events[d][Execute].load(), " finish=", events[d][Finish].load(),
-        " drawNoVS=", noVS[d].load(), " drawNoPS=", noPS[d].load()));
+        " drawNoVS=", noVS[d].load(), " drawNoPS=", noPS[d].load(),
+        " colorWithVS=", events[d][ColorDraw].load(),
+        " depthWithVS=", events[d][DepthDraw].load(),
+        " otherWithVS=", events[d][OtherDraw].load(),
+        " stateChanges=", events[d][StateChange].load(),
+        " nullVSSet=", events[d][NullVS].load(),
+        " nullPSSet=", events[d][NullPS].load()));
       if (!(frame % 300))
         for (auto& budget : budgets[d]) budget.store(0, std::memory_order_relaxed);
     }

@@ -789,6 +789,17 @@ namespace dxvk {
 
     D3D11ContextState           m_state;
     void DiagnoseDraw(uint32_t event, UINT count, UINT instances, const void* caller);
+    void DiagnoseStateChange(const char* reason, const void* caller);
+    // Numeric identities only: never retain or dereference released shaders.
+    struct DiagnosticBinding {
+      uint64_t sequence = 0;
+      uint64_t frame = 0;
+      const void* caller = nullptr;
+      uintptr_t shader = 0;
+    };
+    uint64_t m_diagSequence = 0;
+    DiagnosticBinding m_diagVS, m_diagPS, m_diagReset;
+    const char* m_diagResetReason = "initial";
     UINT                        m_flags;
 
     DxvkStagingBuffer           m_staging;
@@ -1034,7 +1045,7 @@ namespace dxvk {
 
     void ResetCommandListState();
 
-    void ResetContextState();
+    void ResetContextState(const char* reason = "initial", const void* caller = nullptr);
 
     void ResetDirtyTracking();
 

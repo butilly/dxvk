@@ -166,7 +166,7 @@ namespace dxvk {
     if (RestoreContextState)
       RestoreCommandListState();
     else
-      ResetContextState();
+      ResetContextState("ExecuteCommandList(FALSE)", __builtin_return_address(0));
   }
   
   
@@ -200,7 +200,7 @@ namespace dxvk {
     if (RestoreDeferredContextState)
       RestoreCommandListState();
     else
-      ResetContextState();
+      ResetContextState("FinishCommandList(FALSE)", __builtin_return_address(0));
     
     m_mappedResources.clear();
     ResetStagingBuffer();

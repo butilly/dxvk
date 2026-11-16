@@ -271,7 +271,7 @@ namespace dxvk {
     if (RestoreContextState)
       RestoreCommandListState();
     else
-      ResetContextState();
+      ResetContextState("ExecuteCommandList(FALSE)", __builtin_return_address(0));
   }
   
   
@@ -792,6 +792,7 @@ namespace dxvk {
     m_stateObject = newState;
 
     oldState->SetState(m_state);
+    DiagnoseStateChange("SwapDeviceContextState", __builtin_return_address(0));
     newState->GetState(m_state);
 
     // Restore all state affected by the new context state
