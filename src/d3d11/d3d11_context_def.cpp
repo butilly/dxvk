@@ -1,4 +1,5 @@
 #include "d3d11_context_def.h"
+#include "d3d11_sdhd_diag.h"
 #include "d3d11_device.h"
 
 namespace dxvk {
@@ -173,6 +174,7 @@ namespace dxvk {
           BOOL                RestoreDeferredContextState,
           ID3D11CommandList   **ppCommandList) {
     D3D10DeviceLock lock = LockContext();
+    sdhd::commandList(true, sdhd::Finish, m_commandList.ptr(), RestoreDeferredContextState);
 
     // End all queries that were left active by the app
     FinalizeQueries();

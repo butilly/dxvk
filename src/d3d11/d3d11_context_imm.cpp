@@ -1,5 +1,6 @@
 #include "d3d11_cmdlist.h"
 #include "d3d11_context_imm.h"
+#include "d3d11_sdhd_diag.h"
 #include "d3d11_device.h"
 #include "d3d11_fence.h"
 #include "d3d11_texture.h"
@@ -228,6 +229,7 @@ namespace dxvk {
           ID3D11CommandList*  pCommandList,
           BOOL                RestoreContextState) {
     D3D10DeviceLock lock = LockContext();
+    sdhd::commandList(false, sdhd::Execute, pCommandList, RestoreContextState);
 
     auto commandList = static_cast<D3D11CommandList*>(pCommandList);
 

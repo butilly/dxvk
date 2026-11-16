@@ -788,6 +788,7 @@ namespace dxvk {
     Rc<DxvkDevice>              m_device;
 
     D3D11ContextState           m_state;
+    void DiagnoseDraw(uint32_t event, UINT count, UINT instances, const void* caller);
     UINT                        m_flags;
 
     DxvkStagingBuffer           m_staging;
