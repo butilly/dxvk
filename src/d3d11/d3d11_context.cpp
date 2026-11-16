@@ -3,8 +3,94 @@
 #include "d3d11_context.h"
 #include "d3d11_context_def.h"
 #include "d3d11_context_imm.h"
+#include "d3d11_sdhd_diag.h"
 
 namespace dxvk {
+
+  template<typename ContextType>
+  void D3D11CommonContext<ContextType>::DiagnoseStateChange(
+      const char* reason, const void* caller) {
+    if (!sdhd::enabled()) return;
+    m_diagReset = { ++m_diagSequence, sdhd::frames.load(), caller, 0 };
+    m_diagResetReason = reason;
+    if (auto id = sdhd::observe(IsDeferred, sdhd::StateChange))
+      Logger::info(str::format("SDHD-DIAG transition id=", id, " ctx=", this,
+        " deferred=", IsDeferred, " seq=", m_diagSequence,
+        " present=", m_diagReset.frame, " reason=", reason, " caller=", caller,
+        " preVS=", m_state.vs.ptr(), " prePS=", m_state.ps.ptr()));
+  }
+
+  template<typename ContextType>
+  void D3D11CommonContext<ContextType>::DiagnoseDraw(
+      uint32_t event, UINT count, UINT instances, const void* caller) {
+    if (!sdhd::enabled()) return;
+    if (event != sdhd::Dispatch) {
+      if (!m_state.vs) sdhd::noVS[IsDeferred].fetch_add(1, std::memory_order_relaxed);
+      if (!m_state.ps) sdhd::noPS[IsDeferred].fetch_add(1, std::memory_order_relaxed);
+    }
+    const auto& vp = m_state.rs.viewports[0];
+    uint32_t rtMask = 0, vsCbMask = 0, psCbMask = 0;
+    for (uint32_t i = 0; i < m_state.om.rtvs.size(); i++)
+      if (m_state.om.rtvs[i]) rtMask |= 1u << i;
+    auto drawClass = !m_state.vs ? sdhd::MissingVS : rtMask ? sdhd::ColorDraw
+      : m_state.om.dsv ? sdhd::DepthDraw : sdhd::OtherDraw;
+    uint64_t id;
+    if (event == sdhd::Dispatch) {
+      id = sdhd::observe(IsDeferred, sdhd::Dispatch);
+    } else {
+      sdhd::events[IsDeferred][event].fetch_add(1, std::memory_order_relaxed);
+      // Sample missing-VS, color and depth draws separately so a shadow pass
+      // cannot consume the entire frame-window sample budget.
+      id = sdhd::observe(IsDeferred, drawClass);
+    }
+    if (!id) return;
+    for (uint32_t i = 0; i < D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT; i++) {
+      if (m_state.cbv[D3D11ShaderType::eVertex].buffers[i].buffer) vsCbMask |= 1u << i;
+      if (m_state.cbv[D3D11ShaderType::ePixel].buffers[i].buffer) psCbMask |= 1u << i;
+    }
+    auto name = [] (auto* shader) {
+      return shader ? shader->GetCommonShader()->GetName() : std::string("null");
+    };
+    Logger::info(str::format("SDHD-DIAG draw id=", id, " present=", sdhd::frames.load(),
+      " ctx=", this, " deferred=", IsDeferred, " kind=", sdhd::names[event],
+      " count=", count, " instances=", instances, " caller=", caller,
+      " vs=", name(m_state.vs.ptr()), " ps=", name(m_state.ps.ptr()),
+      " gs=", name(m_state.gs.ptr()), " cs=", name(m_state.cs.ptr())));
+    Logger::info(str::format("SDHD-DIAG history id=", id,
+      " class=", event == sdhd::Dispatch ? "dispatch" : sdhd::names[drawClass],
+      " vsSeq=", m_diagVS.sequence, " vsFrame=", m_diagVS.frame,
+      " vsCaller=", m_diagVS.caller, " vsObjectId=", m_diagVS.shader,
+      " psSeq=", m_diagPS.sequence, " psFrame=", m_diagPS.frame,
+      " psCaller=", m_diagPS.caller, " psObjectId=", m_diagPS.shader,
+      " resetSeq=", m_diagReset.sequence, " resetFrame=", m_diagReset.frame,
+      " resetReason=", m_diagResetReason, " resetCaller=", m_diagReset.caller));
+    Logger::info(str::format("SDHD-DIAG state id=", id,
+      " rtMask=", rtMask, " rt0=", m_state.om.rtvs[0].ptr(), " dsv=", m_state.om.dsv.ptr(),
+      " rt0Resource=", m_state.om.rtvs[0] ? m_state.om.rtvs[0]->GetViewInfo().pResource : nullptr,
+      " vpCount=", m_state.rs.numViewports, " vp=", vp.TopLeftX, ",", vp.TopLeftY,
+      ",", vp.Width, ",", vp.Height, ",", vp.MinDepth, ",", vp.MaxDepth,
+      " scissorCount=", m_state.rs.numScissors,
+      " scissorEnabled=", m_state.rs.state ? m_state.rs.state->Desc().ScissorEnable : FALSE,
+      " scissor0=", m_state.rs.scissors[0].left, ",", m_state.rs.scissors[0].top,
+      ",", m_state.rs.scissors[0].right, ",", m_state.rs.scissors[0].bottom,
+      " depth=", m_state.om.dsState ? m_state.om.dsState->Desc().DepthEnable : TRUE,
+      " depthFunc=", m_state.om.dsState ? m_state.om.dsState->Desc().DepthFunc : D3D11_COMPARISON_LESS,
+      " cull=", m_state.rs.state ? m_state.rs.state->Desc().CullMode : D3D11_CULL_BACK,
+      " sampleMask=", m_state.om.sampleMask,
+      " topology=", m_state.ia.primitiveTopology,
+      " vb0=", m_state.ia.vertexBuffers[0].buffer.ptr(),
+      " stride0=", m_state.ia.vertexBuffers[0].stride,
+      " ib=", m_state.ia.indexBuffer.buffer.ptr(),
+      " vsCbMask=", vsCbMask, " psCbMask=", psCbMask,
+      " psSrv0=", m_state.srv[D3D11ShaderType::ePixel].views[0].ptr()));
+    // This marker proves the sampled command stream reached the CS worker.
+    // Replayed deferred lists can execute it repeatedly, so cap logs separately.
+    EmitCs([id] (DxvkContext*) {
+      auto n = sdhd::csReached.fetch_add(1, std::memory_order_relaxed) + 1;
+      if (n <= 512)
+        Logger::info(str::format("SDHD-DIAG cs-reached id=", id, " n=", n));
+    });
+  }
 
   template<typename ContextType>
   D3D11CommonContext<ContextType>::D3D11CommonContext(
@@ -133,7 +219,7 @@ namespace dxvk {
     D3D10DeviceLock lock = LockContext();
 
     ResetCommandListState();
-    ResetContextState();
+    ResetContextState("ClearState", __builtin_return_address(0));
   }
 
 
@@ -998,6 +1084,7 @@ namespace dxvk {
   template<typename ContextType>
   void STDMETHODCALLTYPE D3D11CommonContext<ContextType>::DrawAuto() {
     D3D10DeviceLock lock = LockContext();
+    DiagnoseDraw(sdhd::Indirect, 0, 0, __builtin_return_address(0));
 
     D3D11Buffer* buffer = m_state.ia.vertexBuffers[0].buffer.ptr();
 
@@ -1038,6 +1125,7 @@ namespace dxvk {
           UINT            VertexCount,
           UINT            StartVertexLocation) {
     D3D10DeviceLock lock = LockContext();
+    DiagnoseDraw(sdhd::Draw, VertexCount, 1, __builtin_return_address(0));
 
     if (unlikely(!VertexCount))
       return;
@@ -1058,6 +1146,7 @@ namespace dxvk {
           UINT            StartIndexLocation,
           INT             BaseVertexLocation) {
     D3D10DeviceLock lock = LockContext();
+    DiagnoseDraw(sdhd::Indexed, IndexCount, 1, __builtin_return_address(0));
 
     if (unlikely(!IndexCount))
       return;
@@ -1080,6 +1169,7 @@ namespace dxvk {
           UINT            StartVertexLocation,
           UINT            StartInstanceLocation) {
     D3D10DeviceLock lock = LockContext();
+    DiagnoseDraw(sdhd::Draw, VertexCountPerInstance, InstanceCount, __builtin_return_address(0));
 
     if (unlikely(!VertexCountPerInstance || !InstanceCount))
       return;
@@ -1102,6 +1192,7 @@ namespace dxvk {
           INT             BaseVertexLocation,
           UINT            StartInstanceLocation) {
     D3D10DeviceLock lock = LockContext();
+    DiagnoseDraw(sdhd::Indexed, IndexCountPerInstance, InstanceCount, __builtin_return_address(0));
 
     if (unlikely(!IndexCountPerInstance || !InstanceCount))
       return;
@@ -1122,6 +1213,7 @@ namespace dxvk {
           ID3D11Buffer*   pBufferForArgs,
           UINT            AlignedByteOffsetForArgs) {
     D3D10DeviceLock lock = LockContext();
+    DiagnoseDraw(sdhd::Indirect, 0, 0, __builtin_return_address(0));
     SetDrawBuffers(pBufferForArgs, nullptr);
 
     if (unlikely(HasDirtyGraphicsBindings()))
@@ -1157,6 +1249,7 @@ namespace dxvk {
           ID3D11Buffer*   pBufferForArgs,
           UINT            AlignedByteOffsetForArgs) {
     D3D10DeviceLock lock = LockContext();
+    DiagnoseDraw(sdhd::Indirect, 0, 0, __builtin_return_address(0));
     SetDrawBuffers(pBufferForArgs, nullptr);
 
     if (unlikely(HasDirtyGraphicsBindings()))
@@ -1193,6 +1286,7 @@ namespace dxvk {
           UINT            ThreadGroupCountY,
           UINT            ThreadGroupCountZ) {
     D3D10DeviceLock lock = LockContext();
+    DiagnoseDraw(sdhd::Dispatch, ThreadGroupCountX, ThreadGroupCountY, __builtin_return_address(0));
 
     if (unlikely(!ThreadGroupCountX || !ThreadGroupCountY || !ThreadGroupCountZ))
       return;
@@ -1216,6 +1310,7 @@ namespace dxvk {
           ID3D11Buffer*   pBufferForArgs,
           UINT            AlignedByteOffsetForArgs) {
     D3D10DeviceLock lock = LockContext();
+    DiagnoseDraw(sdhd::Dispatch, 0, 0, __builtin_return_address(0));
     SetDrawBuffers(pBufferForArgs, nullptr);
 
     AddCost(GpuCostEstimate::DispatchIndirect);
@@ -1396,6 +1491,19 @@ namespace dxvk {
     D3D10DeviceLock lock = LockContext();
 
     auto shader = static_cast<D3D11VertexShader*>(pVertexShader);
+    if (sdhd::enabled())
+      m_diagVS = { ++m_diagSequence, sdhd::frames.load(), __builtin_return_address(0),
+        reinterpret_cast<uintptr_t>(shader) };
+    auto bindId = sdhd::observe(IsDeferred, sdhd::VS);
+    if (!shader) {
+      auto nullId = sdhd::observe(IsDeferred, sdhd::NullVS);
+      if (!bindId) bindId = nullId;
+    }
+    if (auto id = bindId)
+      Logger::info(str::format("SDHD-DIAG bind id=", id, " ctx=", this,
+        " deferred=", IsDeferred, " stage=VS caller=", __builtin_return_address(0),
+        " seq=", m_diagVS.sequence, " objectId=", m_diagVS.shader,
+        " shader=", shader ? shader->GetCommonShader()->GetName() : "null"));
     SetClassInstances<D3D11ShaderType::eVertex>(
       shader ? shader->GetCommonShader() : nullptr, ppClassInstances, NumClassInstances);
 
@@ -1940,6 +2048,19 @@ namespace dxvk {
     D3D10DeviceLock lock = LockContext();
 
     auto shader = static_cast<D3D11PixelShader*>(pPixelShader);
+    if (sdhd::enabled())
+      m_diagPS = { ++m_diagSequence, sdhd::frames.load(), __builtin_return_address(0),
+        reinterpret_cast<uintptr_t>(shader) };
+    auto bindId = sdhd::observe(IsDeferred, sdhd::PS);
+    if (!shader) {
+      auto nullId = sdhd::observe(IsDeferred, sdhd::NullPS);
+      if (!bindId) bindId = nullId;
+    }
+    if (auto id = bindId)
+      Logger::info(str::format("SDHD-DIAG bind id=", id, " ctx=", this,
+        " deferred=", IsDeferred, " stage=PS caller=", __builtin_return_address(0),
+        " seq=", m_diagPS.sequence, " objectId=", m_diagPS.shader,
+        " shader=", shader ? shader->GetCommonShader()->GetName() : "null"));
     SetClassInstances<D3D11ShaderType::ePixel>(
       shader ? shader->GetCommonShader() : nullptr, ppClassInstances, NumClassInstances);
 
@@ -4933,7 +5054,8 @@ namespace dxvk {
 
 
   template<typename ContextType>
-  void D3D11CommonContext<ContextType>::ResetContextState() {
+  void D3D11CommonContext<ContextType>::ResetContextState(const char* reason, const void* caller) {
+    DiagnoseStateChange(reason, caller);
     // Reset shaders
     m_state.vs = nullptr;
     m_state.hs = nullptr;
