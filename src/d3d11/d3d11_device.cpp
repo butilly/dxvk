@@ -17,6 +17,7 @@
 #include "d3d11_context_def.h"
 #include "d3d11_context_imm.h"
 #include "d3d11_device.h"
+#include "d3d11_sdhd_diag.h"
 #include "d3d11_fence.h"
 #include "d3d11_input_layout.h"
 #include "d3d11_interop.h"
@@ -2040,7 +2041,22 @@ namespace dxvk {
     const DxvkShaderHash&         ShaderKey,
     const void*                   pShaderBytecode,
           size_t                  BytecodeLength,
-    const DxvkIrShaderCreateInfo& ModuleInfo) {
+      const DxvkIrShaderCreateInfo& ModuleInfo) {
+    // Log silent validation failures too, without changing HRESULTs or bytecode.
+    struct ShaderDiagnostic {
+      D3D11CommonShader* module;
+      const DxvkShaderHash& key;
+      ~ShaderDiagnostic() {
+        if (!sdhd::enabled()) return;
+        bool ok = module->GetShader() != nullptr;
+        auto n = sdhd::shaderRequests.fetch_add(1, std::memory_order_relaxed) + 1;
+        auto failures = ok ? 0 : sdhd::shaderFailed.fetch_add(1, std::memory_order_relaxed) + 1;
+        if (ok) sdhd::shaderSuccess.fetch_add(1, std::memory_order_relaxed);
+        if (n <= 64 || (failures && failures <= 32))
+          Logger::info(str::format("SDHD-DIAG shader n=", n, " key=", key.toString(), " success=", ok));
+      }
+    } diagnostic { pShaderModule, ShaderKey };
+
     if (!BytecodeLength || !pShaderBytecode)
       return E_INVALIDARG;
 

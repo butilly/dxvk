@@ -1,6 +1,7 @@
 #include "d3d11_context_imm.h"
 #include "d3d11_device.h"
 #include "d3d11_swapchain.h"
+#include "d3d11_sdhd_diag.h"
 
 #include "../dxvk/dxvk_latency_builtin.h"
 #include "../dxvk/dxvk_shader_spirv.h"
@@ -281,6 +282,8 @@ namespace dxvk {
       Logger::err(e.message());
       hr = E_FAIL;
     }
+
+    sdhd::present(this, m_backBuffers[0].ptr(), hr);
 
     // Ensure to synchronize and release the frame latency semaphore
     // even if presentation failed with STATUS_OCCLUDED, or otherwise
