@@ -617,8 +617,18 @@ namespace dxvk {
 
       auto builtIn = dxbc_spv::ir::BuiltIn(op->getOperand(op->getFirstLiteralOperandIndex()));
 
-      if (builtIn == dxbc_spv::ir::BuiltIn::eIsFullyCovered)
-        m_metadata.flags.set(DxvkShaderFlag::UsesFragmentCoverage);
+      switch (builtIn) {
+        case dxbc_spv::ir::BuiltIn::eIsFullyCovered: {
+          m_metadata.flags.set(DxvkShaderFlag::UsesFragmentCoverage);
+        } break;
+
+        case dxbc_spv::ir::BuiltIn::eSampleMask: {
+          m_metadata.flags.set(DxvkShaderFlag::UsesSampleMask);
+        } break;
+
+        default:
+          break;
+      }
 
       return ++op;
     }
@@ -2093,10 +2103,11 @@ namespace dxvk {
     options.includeDebugNames = true;
     options.nvRawAccessChains = m_info.options.spirv.test(DxvkShaderSpirvFlag::SupportsNvRawAccessChains);
     options.dualSourceBlending = linkage && linkage->fsDualSrcBlend;
+    options.zeroInitializeScratch = m_info.options.spirv.test(DxvkShaderSpirvFlag::ZeroScratchMemory);
 
     if (m_info.options.spirv.all(DxvkShaderSpirvFlag::IndependentDenormMode,
-                               DxvkShaderSpirvFlag::SupportsRte32,
-                               DxvkShaderSpirvFlag::SupportsDenormFlush32)) {
+                                 DxvkShaderSpirvFlag::SupportsRte32,
+                                 DxvkShaderSpirvFlag::SupportsDenormFlush32)) {
       if (m_info.options.spirv.test(DxvkShaderSpirvFlag::SupportsRte16))
         options.supportedRoundModesF16 |= dxbc_spv::ir::RoundMode::eNearestEven;
       if (m_info.options.spirv.test(DxvkShaderSpirvFlag::SupportsRte32))
@@ -2260,6 +2271,9 @@ namespace dxvk {
     options.derivativeOptions.hoistDescriptorLoads = true;
 
     options.cseOptions.relocateDescriptorLoad = true;
+    options.cseOptions.resolveOverlappingLoads = true;
+
+    options.bufferIndexing.allowDynamicIndexing = true;
 
     if (m_info.options.spirv.test(DxvkShaderSpirvFlag::SupportsResourceIndexing))
       options.descriptorIndexing.optimizeDescriptorIndexing = true;
