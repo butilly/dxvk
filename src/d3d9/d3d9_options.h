@@ -52,6 +52,9 @@ namespace dxvk {
     /// Whether or not to set the process as DPI aware in Windows when the API interface is created.
     bool dpiAware;
 
+    /// Remove decorations and cover the desktop when DXVK_FORCE_WINDOWED is set.
+    bool forceWindowedBorderless;
+
     /// Whether or not to do a fast path clear if we're close enough to the whole render target.
     bool lenientClear;
 
