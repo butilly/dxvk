@@ -169,6 +169,9 @@ namespace dxvk {
 
     wsi::DxvkWindowState      m_windowState;
 
+    HWND                     m_borderlessWindow = nullptr;
+    wsi::DxvkWindowState      m_borderlessState;
+
     double                    m_targetFrameRate = 0.0;
 
     double                    m_displayRefreshRate = 0.0;
@@ -211,6 +214,10 @@ namespace dxvk {
     VkSurfaceFormatKHR GetSurfaceFormat();
     
     void NormalizePresentParameters(D3DPRESENT_PARAMETERS* pPresentParams);
+
+    void UpdateBorderlessWindow(HWND window);
+
+    void RestoreBorderlessWindow();
 
     void UpdateWindowedRefreshRate();
 

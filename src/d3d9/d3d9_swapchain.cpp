@@ -41,6 +41,8 @@ namespace dxvk {
     // Apply initial window mode and fullscreen state
     if (!m_presentParams.Windowed && FAILED(EnterFullscreenMode(pPresentParams, pFullscreenDisplayMode)))
       throw DxvkError("D3D9: Failed to set initial fullscreen state");
+
+    UpdateBorderlessWindow(m_window);
   }
 
 
@@ -63,6 +65,7 @@ namespace dxvk {
     DestroyBackBuffers();
 
     ResetWindowProc(m_window);
+    RestoreBorderlessWindow();
     RestoreDisplayMode(m_monitor);
 
     for (auto& p : m_presenters) {
@@ -668,6 +671,8 @@ namespace dxvk {
     if (FAILED(hr))
       return hr;
 
+    UpdateBorderlessWindow(m_window);
+
     return D3D_OK;
   }
 
@@ -819,6 +824,7 @@ namespace dxvk {
     if (pPresentParams->hDeviceWindow == nullptr)
       pPresentParams->hDeviceWindow    = m_parent->GetWindow();
 
+    const bool forceWindowed = env::getEnvVar("DXVK_FORCE_WINDOWED") == "1";
     pPresentParams->BackBufferCount    = std::max(pPresentParams->BackBufferCount, 1u);
 
     if (pPresentParams->Windowed) {
@@ -835,8 +841,76 @@ namespace dxvk {
     if (pPresentParams->BackBufferFormat == D3DFMT_UNKNOWN)
       pPresentParams->BackBufferFormat = D3DFMT_X8R8G8B8;
 
-    if (env::getEnvVar("DXVK_FORCE_WINDOWED") == "1")
+    if (forceWindowed)
       pPresentParams->Windowed         = TRUE;
+  }
+
+
+  void D3D9SwapChainEx::UpdateBorderlessWindow(HWND window) {
+#if defined(DXVK_WSI_WIN32)
+    if (!m_parent->GetOptions()->forceWindowedBorderless
+     || env::getEnvVar("DXVK_FORCE_WINDOWED") != "1")
+      window = nullptr;
+
+    if (window != m_borderlessWindow)
+      RestoreBorderlessWindow();
+
+    if (!wsi::isWindow(window) || (::GetWindowLongW(window, GWL_STYLE) & WS_CHILD))
+      return;
+
+    RECT desktop = { };
+    if (!wsi::getDesktopCoordinates(wsi::getWindowMonitor(window), &desktop))
+      return;
+
+    if (!m_borderlessWindow) {
+      wsi::saveWindowState(window, &m_borderlessState, true);
+      m_borderlessWindow = window;
+    }
+
+    LONG style = ::GetWindowLongW(window, GWL_STYLE);
+    LONG exstyle = ::GetWindowLongW(window, GWL_EXSTYLE);
+    RECT rect = { };
+    ::GetWindowRect(window, &rect);
+
+    // Keep D3D9 presentation windowed: no display-mode change, fullscreen
+    // window-proc hook, or Wine fullscreen presentation-rectangle escape.
+    // Reapply on Reset, but do not send redundant resize messages.
+    if ((style & WS_OVERLAPPEDWINDOW) || (exstyle & WS_EX_OVERLAPPEDWINDOW)
+     || !::EqualRect(&rect, &desktop)) {
+      ::SetWindowLongW(window, GWL_STYLE, style & ~WS_OVERLAPPEDWINDOW);
+      ::SetWindowLongW(window, GWL_EXSTYLE, exstyle & ~WS_EX_OVERLAPPEDWINDOW);
+      if (!::SetWindowPos(window, nullptr, desktop.left, desktop.top,
+          desktop.right - desktop.left, desktop.bottom - desktop.top,
+          SWP_FRAMECHANGED | SWP_NOACTIVATE | SWP_NOZORDER)) {
+        Logger::warn("D3D9: Failed to size forced-windowed borderless window");
+        RestoreBorderlessWindow();
+        return;
+      }
+
+      UINT width = 0, height = 0;
+      wsi::getWindowSize(window, &width, &height);
+      Logger::info(str::format("D3D9: Forced-windowed borderless client: ", width, "x", height));
+    }
+#endif
+  }
+
+
+  void D3D9SwapChainEx::RestoreBorderlessWindow() {
+#if defined(DXVK_WSI_WIN32)
+    HWND window = std::exchange(m_borderlessWindow, nullptr);
+    if (!window || !wsi::isWindow(window))
+      return;
+
+    // Do not overwrite styles subsequently changed by the application.
+    LONG style = ::GetWindowLongW(window, GWL_STYLE);
+    LONG exstyle = ::GetWindowLongW(window, GWL_EXSTYLE);
+    if ((style & ~WS_VISIBLE) == (m_borderlessState.win.style & ~(WS_VISIBLE | WS_OVERLAPPEDWINDOW))
+     && (exstyle & ~WS_EX_TOPMOST) == (m_borderlessState.win.exstyle & ~(WS_EX_TOPMOST | WS_EX_OVERLAPPEDWINDOW))) {
+      ::SetWindowLongW(window, GWL_STYLE, m_borderlessState.win.style);
+      ::SetWindowLongW(window, GWL_EXSTYLE, m_borderlessState.win.exstyle);
+      wsi::restoreWindowState(window, &m_borderlessState, true);
+    }
+#endif
   }
 
 

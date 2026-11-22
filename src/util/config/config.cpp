@@ -20,6 +20,11 @@ namespace dxvk {
 
 
   const static ProfileList g_profiles = {
+    /* Dreamfall's forced-windowed path retains the Win32 frame. */
+    { R"(\\dreamfall\.exe$)", {{
+      { "d3d9.forceWindowedBorderless",     "True" },
+    }} },
+
     /**********************************************/
     /* D3D12 GAMES (vkd3d-proton with dxvk dxgi)  */
     /**********************************************/
