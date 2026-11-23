@@ -121,8 +121,11 @@ namespace dxvk {
                        |  VK_ACCESS_SHADER_WRITE_BIT;
 
       // UAVs are not supported for sRGB formats on most drivers,
-      // but we can still create linear views for the image
-      if (formatProperties->flags.test(DxvkFormatFlag::ColorSpaceSrgb))
+      // but we can still create linear views for the image. Likewise,
+      // typeless formats such as BGRA8 can use the R32 views added above
+      // even when the base format does not support storage images.
+      if (formatProperties->flags.test(DxvkFormatFlag::ColorSpaceSrgb)
+       || IsR32UavCompatibleFormat(m_desc.Format))
         imageInfo.flags |= VK_IMAGE_CREATE_EXTENDED_USAGE_BIT;
     }
 
