@@ -61,6 +61,7 @@ namespace dxvk {
           throw DxvkError(str::format("Failed to convert shader: ", m_key.toString()));
 
         lowerBuiltIns(builder);
+        lowerBgraUavAccess(builder);
       }
     }
 
@@ -108,6 +109,94 @@ namespace dxvk {
       dxbc_spv::ir::BasicType type;
       const char* name;
     };
+
+    // Vulkan storage views cannot have a component mapping. Specialize the
+    // R/B exchange per bound UAV, leaving the underlying BGRA bytes intact.
+    static void lowerBgraUavAccess(dxbc_spv::ir::Builder& builder) {
+      using namespace dxbc_spv;
+      auto entryPoint = findEntryPoint(builder).first;
+      std::array<ir::SsaDef, 2u> masks = { };
+      small_vector<ir::SsaDef, 32u> accesses;
+      for (auto iter = builder.getCode().first; iter != builder.getCode().second; iter++) {
+        if (iter->getOpCode() == ir::OpCode::eImageLoad
+         || iter->getOpCode() == ir::OpCode::eImageStore)
+          accesses.push_back(iter->getDef());
+      }
+
+      for (auto ref : accesses) {
+        auto op = builder.getOp(ref);
+        auto descriptor = builder.getOpForOperand(op, 0u);
+        if (descriptor.getOpCode() != ir::OpCode::eDescriptorLoad)
+          continue;
+        auto decl = builder.getOpForOperand(descriptor, 0u);
+        if (decl.getOpCode() != ir::OpCode::eDclUav)
+          continue;
+
+        uint32_t reg = uint32_t(decl.getOperand(2u));
+        uint32_t count = uint32_t(decl.getOperand(3u));
+        if (uint32_t(decl.getOperand(1u)) || reg >= 64u)
+          continue;
+
+        auto getMask = [&] (uint32_t word) {
+          if (!masks[word])
+            masks[word] = builder.add(ir::Op::DclSpecConstant(
+              ir::ScalarType::eU32, entryPoint, 1u + word, 0u));
+          return masks[word];
+        };
+
+        ir::SsaDef mask, bitIndex;
+        if (count == 1u) {
+          mask = getMask(reg / 32u);
+          bitIndex = builder.makeConstant(reg % 32u);
+        } else {
+          auto index = builder.addBefore(ref, ir::Op::IAdd(ir::ScalarType::eU32,
+            ir::SsaDef(descriptor.getOperand(1u)), builder.makeConstant(reg)));
+          auto high = builder.addBefore(ref, ir::Op::UGe(ir::ScalarType::eBool,
+            index, builder.makeConstant(32u)));
+          mask = builder.addBefore(ref, ir::Op::Select(ir::ScalarType::eU32,
+            high, getMask(1u), getMask(0u)));
+          bitIndex = builder.addBefore(ref, ir::Op::IAnd(ir::ScalarType::eU32,
+            index, builder.makeConstant(31u)));
+        }
+        auto bit = builder.addBefore(ref, ir::Op::UBitExtract(ir::ScalarType::eU32,
+          mask, bitIndex, builder.makeConstant(1u)));
+        auto enabled = builder.addBefore(ref, ir::Op::INe(ir::ScalarType::eBool,
+          bit, builder.makeConstant(0u)));
+
+        bool isLoad = op.getOpCode() == ir::OpCode::eImageLoad;
+        auto value = isLoad ? builder.addBefore(ref, op) : ir::SsaDef(op.getOperand(3u));
+        auto type = builder.getOp(value).getType();
+        auto texelType = type.isStructType() ? type.getSubType(1u) : type;
+        auto texel = value;
+        if (type.isStructType())
+          texel = builder.addBefore(ref, ir::Op::CompositeExtract(
+            texelType, value, builder.makeConstant(1u)));
+
+        auto scalar = texelType.getBaseType(0u).getBaseType();
+        std::array<ir::SsaDef, 4u> components;
+        for (uint32_t i = 0; i < 4u; i++)
+          components[i] = builder.addBefore(ref, ir::Op::CompositeExtract(
+            scalar, texel, builder.makeConstant(i)));
+        auto red = builder.addBefore(ref, ir::Op::Select(
+          scalar, enabled, components[2], components[0]));
+        auto blue = builder.addBefore(ref, ir::Op::Select(
+          scalar, enabled, components[0], components[2]));
+        auto result = builder.addBefore(ref, ir::Op::CompositeConstruct(
+          texelType, red, components[1], blue, components[3]));
+
+        if (isLoad) {
+          if (type.isStructType()) {
+            auto feedback = builder.addBefore(ref, ir::Op::CompositeExtract(
+              type.getSubType(0u), value, builder.makeConstant(0u)));
+            result = builder.addBefore(ref, ir::Op::CompositeConstruct(type, feedback, result));
+          }
+          builder.rewriteDef(ref, result);
+        } else {
+          op.setOperand(3u, result);
+          builder.rewriteOp(ref, std::move(op));
+        }
+      }
+    }
 
     static void lowerBuiltIns(dxbc_spv::ir::Builder& builder) {
       using namespace dxbc_spv;
