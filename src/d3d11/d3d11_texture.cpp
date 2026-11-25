@@ -365,6 +365,14 @@ namespace dxvk {
       return false;
 
     if (imageInfo.flags & VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT) {
+      // Without extended usage, image creation already validated sampling
+      // the base format. Emulated formats can under-report format features.
+      if (BindFlags == D3D11_BIND_SHADER_RESOURCE && planeCount == 1
+       && viewFormat.Format == imageInfo.format
+       && (imageInfo.usage & VK_IMAGE_USAGE_SAMPLED_BIT)
+       && !(imageInfo.flags & VK_IMAGE_CREATE_EXTENDED_USAGE_BIT))
+        return true;
+
       // Check whether the given combination of image
       // view type and view format is actually supported
       VkFormatFeatureFlags2 features = GetImageFormatFeatures(BindFlags);
