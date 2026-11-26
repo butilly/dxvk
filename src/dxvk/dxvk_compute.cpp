@@ -93,6 +93,31 @@ namespace dxvk {
   }
   
   
+  // lowerBgraUavAccess emits zero-default u32 SpecIds 1 and 2. The
+  // instance cache already keys on their values, so materializing the
+  // bound masks here preserves channel order on each cached variant.
+  static bool bakeBgraMask(SpirvCodeBuffer& code, uint32_t slot, uint32_t value) {
+    for (auto decoration : code) {
+      if (decoration.opCode() != spv::OpDecorate
+       || decoration.arg(2) != spv::DecorationSpecId || decoration.arg(3) != slot)
+        continue;
+
+      for (auto constant : code) {
+        if (constant.opCode() != spv::OpSpecConstant || constant.length() != 4
+         || constant.arg(2) != decoration.arg(1))
+          continue;
+
+        constant.setArg(0, (4u << spv::WordCountShift) | spv::OpConstant);
+        constant.setArg(3, value);
+        code.beginInsertion(decoration.offset());
+        code.erase(decoration.length());
+        code.endInsertion();
+        return true;
+      }
+    }
+    return false;
+  }
+
   VkPipeline DxvkComputePipeline::createPipeline(
     const DxvkComputePipelineStateInfo& state) const {
     auto vk = m_device->vkd();
@@ -101,9 +126,16 @@ namespace dxvk {
     DxvkPipelineSpecConstantState scState(m_shaders.cs->metadata().specConstantMask, state.sc);
     
     DxvkShaderStageInfo stageInfo(m_device, layout);
-    stageInfo.addStage(VK_SHADER_STAGE_COMPUTE_BIT, 
-      m_shaders.cs->getCode(m_layout.getBindingMap(DxvkPipelineLayoutType::Merged), nullptr),
-      &scState.scInfo);
+    auto code = m_shaders.cs->getCode(m_layout.getBindingMap(DxvkPipelineLayoutType::Merged), nullptr);
+    bool target = m_shaders.cs->debugName() == "cs.dc7f676e3aecffe80400e61bf8a09e06"
+               && env::getExeName() == "DropDuchy-Win64-Shipping.exe";
+    if (target) {
+      uint32_t baked = 0;
+      for (uint32_t slot : { 1u, 2u })
+        baked += bakeBgraMask(code, slot, state.sc.specConstants[slot]);
+      Logger::info(str::format("Compute BGRA masks baked: ", baked));
+    }
+    stageInfo.addStage(VK_SHADER_STAGE_COMPUTE_BIT, std::move(code), &scState.scInfo);
 
     VkPipelineCreateFlags2CreateInfo flags = { VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO };
 
@@ -119,8 +151,7 @@ namespace dxvk {
     info.basePipelineIndex    = -1;
 
     // Request a cheaper driver compile for the specialized pipeline that stalls.
-    if (m_shaders.cs->debugName() == "cs.dc7f676e3aecffe80400e61bf8a09e06"
-     && env::getExeName() == "DropDuchy-Win64-Shipping.exe") {
+    if (target) {
       if (flags.flags)
         flags.flags |= VK_PIPELINE_CREATE_DISABLE_OPTIMIZATION_BIT;
       else
