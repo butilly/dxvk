@@ -491,6 +491,16 @@ namespace dxvk {
     VkFormat uavFormat = m_parent->LookupFormat(uavDesc.Format, DXGI_VK_FORMAT_MODE_ANY).Format;
     VkFormat rawFormat = m_parent->LookupFormat(uavDesc.Format, DXGI_VK_FORMAT_MODE_RAW).Format;
 
+    // BGRA has no raw integer mapping. Clear the emulated RGBA view with
+    // the requested byte values converted to UNORM in physical B/G/R/A order.
+    if (uav->NeedsBgraSwizzle()) {
+      FLOAT values[4];
+      for (uint32_t i = 0; i < 4; i++)
+        values[i] = float(Values[i] & 0xff) / 255.0f;
+      ClearUnorderedAccessViewFloat(pUnorderedAccessView, values);
+      return;
+    }
+
     if (uavDesc.Format == DXGI_FORMAT_A8_UNORM)
       rawFormat = uavFormat;
 
@@ -650,6 +660,8 @@ namespace dxvk {
           cClearValue.color);
       });
     } else {
+      if (uav->NeedsBgraSwizzle())
+        std::swap(clearValue.color.float32[0], clearValue.color.float32[2]);
       EmitCs([
         cClearValue = clearValue,
         cDstView    = std::move(imgView)
@@ -753,8 +765,12 @@ namespace dxvk {
       Rc<DxvkImageView> imgView = uav->GetImageView();
       Rc<DxvkBufferView> bufView = uav->GetBufferView();
 
-      if (imgView)
-        ClearImageView(std::move(imgView), Color, pRect, NumRects);
+      if (imgView) {
+        FLOAT color[4] = { Color[0], Color[1], Color[2], Color[3] };
+        if (uav->NeedsBgraSwizzle())
+          std::swap(color[0], color[2]);
+        ClearImageView(std::move(imgView), color, pRect, NumRects);
+      }
 
       if (bufView)
         ClearBufferView(std::move(bufView), Color, pRect, NumRects);
@@ -3471,7 +3487,7 @@ namespace dxvk {
       cSpecData = specData
     ] (DxvkContext* ctx) {
       ctx->setSpecConstants(VK_PIPELINE_BIND_POINT_GRAPHICS,
-        0u, sizeof(cSpecData), &cSpecData);
+        0u, sizeof(cSpecData) / sizeof(uint32_t), &cSpecData);
     });
   }
 
@@ -3998,6 +4014,15 @@ namespace dxvk {
           D3D11UnorderedAccessView*         pUav) {
     uint32_t uavSlotId = D3D11ShaderResourceMapping::computeUavBinding(ShaderStage, Slot);
     uint32_t ctrSlotId = D3D11ShaderResourceMapping::computeUavCounterBinding(ShaderStage, Slot);
+
+    EmitCs([
+      cPipeline = ShaderStage == D3D11ShaderType::eCompute
+        ? VK_PIPELINE_BIND_POINT_COMPUTE : VK_PIPELINE_BIND_POINT_GRAPHICS,
+      cSlot = Slot,
+      cSwizzle = pUav && pUav->NeedsBgraSwizzle()
+    ] (DxvkContext* ctx) {
+      ctx->setSpecConstantBit(cPipeline, 1u + cSlot / 32u, cSlot % 32u, cSwizzle);
+    });
 
     VkShaderStageFlags stages = ShaderStage == D3D11ShaderType::eCompute
       ? VK_SHADER_STAGE_COMPUTE_BIT
@@ -4923,6 +4948,9 @@ namespace dxvk {
           auto ctrSlotId = D3D11ShaderResourceMapping::computeUavCounterBinding(programType, 0);
 
           for (uint32_t j = 0; j < cUsedBindings.stages[i].uavCount; j++) {
+            ctx->setSpecConstantBit(programType == D3D11ShaderType::eCompute
+              ? VK_PIPELINE_BIND_POINT_COMPUTE : VK_PIPELINE_BIND_POINT_GRAPHICS,
+              1u + j / 32u, j % 32u, false);
             ctx->bindResourceImageView(stages, uavSlotId, nullptr);
             ctx->bindResourceBufferView(stages, ctrSlotId, nullptr);
           }
