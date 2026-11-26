@@ -58,10 +58,14 @@ namespace dxvk {
   HRESULT STDMETHODCALLTYPE D3D11VideoProcessorEnumerator::CheckVideoProcessorFormat(
           DXGI_FORMAT             Format,
           UINT*                   pFlags) {
-    Logger::warn(str::format("D3D11VideoProcessorEnumerator::CheckVideoProcessorFormat: stub, format ", Format));
-
     if (!pFlags)
       return E_INVALIDARG;
+
+    // Media Foundation subtype identifiers are not necessarily DXGI formats.
+    if (m_parent->LookupFormat(Format, DXGI_VK_FORMAT_MODE_COLOR).Format == VK_FORMAT_UNDEFINED) {
+      *pFlags = 0;
+      return S_OK;
+    }
 
     *pFlags = D3D11_VIDEO_PROCESSOR_FORMAT_SUPPORT_INPUT | D3D11_VIDEO_PROCESSOR_FORMAT_SUPPORT_OUTPUT;
     return S_OK;
