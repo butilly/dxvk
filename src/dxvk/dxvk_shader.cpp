@@ -1,3 +1,4 @@
+#include "../util/thread.h"
 #include "dxvk_device.h"
 #include "dxvk_pipemanager.h"
 #include "dxvk_shader.h"
@@ -569,7 +570,10 @@ namespace dxvk {
       flagsInfo.pNext = std::exchange(info.pNext, &flagsInfo);
 
     VkPipeline pipeline = VK_NULL_HANDLE;
+    const auto trace = str::format("library shader=", getShader(VK_SHADER_STAGE_COMPUTE_BIT)->debugName(), " thread=", dxvk::this_thread::get_id());
+    Logger::info(str::format("Compute pipeline begin: ", trace));
     VkResult vr = vk->vkCreateComputePipelines(vk->device(), VK_NULL_HANDLE, 1, &info, nullptr, &pipeline);
+    Logger::info(str::format("Compute pipeline end: ", trace, " result=", vr));
 
     if (vr && vr != VK_PIPELINE_COMPILE_REQUIRED_EXT)
       Logger::err(str::format("DxvkShaderPipelineLibrary: Failed to create compute shader pipeline: ", vr));

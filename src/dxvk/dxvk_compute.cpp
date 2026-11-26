@@ -1,7 +1,9 @@
+#include "../util/thread.h"
 #include <cstring>
 #include <iomanip>
 #include <sstream>
 
+#include "../util/util_env.h"
 #include "../util/util_time.h"
 
 #include "dxvk_compute.h"
@@ -116,12 +118,24 @@ namespace dxvk {
     info.layout               = layout->getPipelineLayout();
     info.basePipelineIndex    = -1;
 
+    // Request a cheaper driver compile for the specialized pipeline that stalls.
+    if (m_shaders.cs->debugName() == "cs.dc7f676e3aecffe80400e61bf8a09e06"
+     && env::getExeName() == "DropDuchy-Win64-Shipping.exe") {
+      if (flags.flags)
+        flags.flags |= VK_PIPELINE_CREATE_DISABLE_OPTIMIZATION_BIT;
+      else
+        info.flags |= VK_PIPELINE_CREATE_DISABLE_OPTIMIZATION_BIT;
+    }
+
     if (flags.flags)
       flags.pNext = std::exchange(info.pNext, &flags);
 
     VkPipeline pipeline = VK_NULL_HANDLE;
+    const auto trace = str::format("specialized shader=", m_shaders.cs->debugName(), " thread=", dxvk::this_thread::get_id());
+    Logger::info(str::format("Compute pipeline begin: ", trace));
     VkResult vr = vk->vkCreateComputePipelines(vk->device(),
           VK_NULL_HANDLE, 1, &info, nullptr, &pipeline);
+    Logger::info(str::format("Compute pipeline end: ", trace, " result=", vr));
 
     if (vr != VK_SUCCESS) {
       Logger::err(str::format("DxvkComputePipeline: Failed to compile pipeline: ", vr));
