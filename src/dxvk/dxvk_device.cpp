@@ -1,3 +1,5 @@
+#include "../util/thread.h"
+#include "../util/sha1/sha1_util.h"
 #include "dxvk_device.h"
 #include "dxvk_instance.h"
 #include "dxvk_latency_builtin.h"
@@ -318,8 +320,11 @@ namespace dxvk {
 
     VkPipeline pipeline = VK_NULL_HANDLE;
 
+    const auto trace = str::format("built-in shader=", Sha1Hash::compute(stage.code, stage.size).toString(), " thread=", dxvk::this_thread::get_id());
+    Logger::info(str::format("Compute pipeline begin: ", trace));
     VkResult vr = m_vkd->vkCreateComputePipelines(m_vkd->device(),
       VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline);
+    Logger::info(str::format("Compute pipeline end: ", trace, " result=", vr));
 
     if (vr)
       throw DxvkError(str::format("Failed to create built-in compute pipeline: ", vr));

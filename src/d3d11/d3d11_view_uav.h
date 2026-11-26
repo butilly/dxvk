@@ -60,6 +60,11 @@ namespace dxvk {
     Rc<DxvkImageView> GetImageView() const {
       return m_imageView;
     }
+
+    bool NeedsBgraSwizzle() const {
+      return m_desc.Format == DXGI_FORMAT_B8G8R8A8_UNORM
+          && m_imageView && m_imageView->info().format == VK_FORMAT_R8G8B8A8_UNORM;
+    }
     
     Rc<DxvkBufferView> GetCounterView() const {
       return m_counterView;
