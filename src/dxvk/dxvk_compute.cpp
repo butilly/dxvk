@@ -3,6 +3,7 @@
 #include <iomanip>
 #include <sstream>
 
+#include "../util/util_env.h"
 #include "../util/util_time.h"
 
 #include "dxvk_compute.h"
@@ -116,6 +117,15 @@ namespace dxvk {
     info.stage                = *stageInfo.getStageInfos();
     info.layout               = layout->getPipelineLayout();
     info.basePipelineIndex    = -1;
+
+    // Request a cheaper driver compile for the specialized pipeline that stalls.
+    if (m_shaders.cs->debugName() == "cs.dc7f676e3aecffe80400e61bf8a09e06"
+     && env::getExeName() == "DropDuchy-Win64-Shipping.exe") {
+      if (flags.flags)
+        flags.flags |= VK_PIPELINE_CREATE_DISABLE_OPTIMIZATION_BIT;
+      else
+        info.flags |= VK_PIPELINE_CREATE_DISABLE_OPTIMIZATION_BIT;
+    }
 
     if (flags.flags)
       flags.pNext = std::exchange(info.pNext, &flags);
