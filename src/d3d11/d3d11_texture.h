@@ -249,6 +249,10 @@ namespace dxvk {
     Rc<DxvkImage> GetImage() const {
       return m_image;
     }
+
+    bool EmulatesBgraUav(DXGI_FORMAT Format) const {
+      return m_emulateBgraUav && Format == DXGI_FORMAT_B8G8R8A8_UNORM;
+    }
     
     /**
      * \brief Mapped subresource buffer
@@ -581,6 +585,7 @@ namespace dxvk {
     D3D11_COMMON_TEXTURE_MAP_MODE m_mapMode;
     DXGI_USAGE                    m_dxgiUsage;
     VkFormat                      m_packedFormat;
+    bool                          m_emulateBgraUav = false;
     
     Rc<DxvkImage>                 m_image;
     small_vector<MappedBuffer, 6> m_buffers;

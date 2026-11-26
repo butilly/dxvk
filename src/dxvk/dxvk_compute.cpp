@@ -1,3 +1,4 @@
+#include "../util/thread.h"
 #include <cstring>
 #include <iomanip>
 #include <sstream>
@@ -120,8 +121,11 @@ namespace dxvk {
       flags.pNext = std::exchange(info.pNext, &flags);
 
     VkPipeline pipeline = VK_NULL_HANDLE;
+    const auto trace = str::format("specialized shader=", m_shaders.cs->debugName(), " thread=", dxvk::this_thread::get_id());
+    Logger::info(str::format("Compute pipeline begin: ", trace));
     VkResult vr = vk->vkCreateComputePipelines(vk->device(),
           VK_NULL_HANDLE, 1, &info, nullptr, &pipeline);
+    Logger::info(str::format("Compute pipeline end: ", trace, " result=", vr));
 
     if (vr != VK_SUCCESS) {
       Logger::err(str::format("DxvkComputePipeline: Failed to compile pipeline: ", vr));

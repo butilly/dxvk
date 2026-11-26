@@ -56,6 +56,9 @@ namespace dxvk {
     } else {
       auto texture = GetCommonTexture(pResource);
       auto formatInfo = pDevice->LookupFormat(pDesc->Format, texture->GetFormatMode());
+
+      if (texture->EmulatesBgraUav(pDesc->Format))
+        formatInfo.Format = VK_FORMAT_R8G8B8A8_UNORM;
       
       DxvkImageViewKey viewInfo;
       viewInfo.format = formatInfo.Format;
