@@ -1198,6 +1198,20 @@ namespace dxvk {
           : DxvkContextFlag::CpDirtySpecConstants);
       }
     }
+
+    void setSpecConstantBit(VkPipelineBindPoint pipeline,
+            uint32_t index, uint32_t bit, bool value) {
+      auto& scState = pipeline == VK_PIPELINE_BIND_POINT_GRAPHICS
+        ? m_state.gp.constants : m_state.cp.constants;
+      uint32_t data = (scState.data[index] & ~(1u << bit))
+                    | (uint32_t(value) << bit);
+      if (std::exchange(scState.data[index], data) != data
+       && (scState.mask & (1u << index))) {
+        m_flags.set(pipeline == VK_PIPELINE_BIND_POINT_GRAPHICS
+          ? DxvkContextFlag::GpDirtySpecConstants
+          : DxvkContextFlag::CpDirtySpecConstants);
+      }
+    }
     
     /**
      * \brief Sets barrier control flags

@@ -77,6 +77,18 @@ namespace dxvk {
       formatFamily.Add(VK_FORMAT_R32_SINT);
     }
 
+    // Keep BGRA storage and sampled views byte-compatible. Only UAV views
+    // use RGBA, with R/B conversion in the shader and clear paths.
+    if ((m_desc.BindFlags & D3D11_BIND_UNORDERED_ACCESS)
+     && m_desc.Format == DXGI_FORMAT_B8G8R8A8_TYPELESS) {
+      auto bgra = pDevice->GetDXVKDevice()->getFormatFeatures(VK_FORMAT_B8G8R8A8_UNORM);
+      auto rgba = pDevice->GetDXVKDevice()->getFormatFeatures(VK_FORMAT_R8G8B8A8_UNORM);
+      m_emulateBgraUav = !(bgra.optimal & VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT)
+                     && (rgba.optimal & VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT);
+      if (m_emulateBgraUav)
+        formatFamily.Add(VK_FORMAT_R8G8B8A8_UNORM);
+    }
+
     // The image must be marked as mutable if it can be reinterpreted
     // by a view with a different format. Depth-stencil formats cannot
     // be reinterpreted in Vulkan, so we'll ignore those.
@@ -121,8 +133,11 @@ namespace dxvk {
                        |  VK_ACCESS_SHADER_WRITE_BIT;
 
       // UAVs are not supported for sRGB formats on most drivers,
-      // but we can still create linear views for the image
-      if (formatProperties->flags.test(DxvkFormatFlag::ColorSpaceSrgb))
+      // but we can still create linear views for the image. Likewise,
+      // typeless formats such as BGRA8 can use the R32 views added above
+      // even when the base format does not support storage images.
+      if (formatProperties->flags.test(DxvkFormatFlag::ColorSpaceSrgb)
+       || IsR32UavCompatibleFormat(m_desc.Format))
         imageInfo.flags |= VK_IMAGE_CREATE_EXTENDED_USAGE_BIT;
     }
 
@@ -339,6 +354,9 @@ namespace dxvk {
     DXGI_VK_FORMAT_MODE formatMode = GetFormatMode();
     DXGI_VK_FORMAT_INFO viewFormat = m_device->LookupFormat(Format,        formatMode);
     DXGI_VK_FORMAT_INFO baseFormat = m_device->LookupFormat(m_desc.Format, formatMode);
+
+    if (BindFlags == D3D11_BIND_UNORDERED_ACCESS && EmulatesBgraUav(Format))
+      viewFormat.Format = VK_FORMAT_R8G8B8A8_UNORM;
     
     // Check whether the plane index is valid for the given format
     uint32_t planeCount = GetPlaneCount();
@@ -347,6 +365,14 @@ namespace dxvk {
       return false;
 
     if (imageInfo.flags & VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT) {
+      // Without extended usage, image creation already validated sampling
+      // the base format. Emulated formats can under-report format features.
+      if (BindFlags == D3D11_BIND_SHADER_RESOURCE && planeCount == 1
+       && viewFormat.Format == imageInfo.format
+       && (imageInfo.usage & VK_IMAGE_USAGE_SAMPLED_BIT)
+       && !(imageInfo.flags & VK_IMAGE_CREATE_EXTENDED_USAGE_BIT))
+        return true;
+
       // Check whether the given combination of image
       // view type and view format is actually supported
       VkFormatFeatureFlags2 features = GetImageFormatFeatures(BindFlags);

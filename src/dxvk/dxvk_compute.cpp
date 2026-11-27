@@ -1,7 +1,9 @@
+#include "../util/thread.h"
 #include <cstring>
 #include <iomanip>
 #include <sstream>
 
+#include "../util/util_env.h"
 #include "../util/util_time.h"
 
 #include "dxvk_compute.h"
@@ -91,6 +93,35 @@ namespace dxvk {
   }
   
   
+  // Some compilers take a different path for LocalSizeId even when all
+  // three dimensions are ordinary constants. Preserve their exact values.
+  static bool useLiteralLocalSize(SpirvCodeBuffer& code) {
+    for (auto mode : code) {
+      if (mode.opCode() != spv::OpExecutionModeId || mode.length() != 6
+       || mode.arg(2) != spv::ExecutionModeLocalSizeId)
+        continue;
+
+      uint32_t dims[3] = {};
+      for (auto constant : code) {
+        if (constant.opCode() != spv::OpConstant || constant.length() != 4)
+          continue;
+        for (uint32_t i = 0; i < 3; i++) {
+          if (mode.arg(3 + i) == constant.arg(2))
+            dims[i] = constant.arg(3);
+        }
+      }
+      if (!dims[0] || !dims[1] || !dims[2])
+        return false;
+
+      mode.setArg(0, (6u << spv::WordCountShift) | spv::OpExecutionMode);
+      mode.setArg(2, spv::ExecutionModeLocalSize);
+      for (uint32_t i = 0; i < 3; i++)
+        mode.setArg(3 + i, dims[i]);
+      return true;
+    }
+    return false;
+  }
+
   VkPipeline DxvkComputePipeline::createPipeline(
     const DxvkComputePipelineStateInfo& state) const {
     auto vk = m_device->vkd();
@@ -99,9 +130,13 @@ namespace dxvk {
     DxvkPipelineSpecConstantState scState(m_shaders.cs->metadata().specConstantMask, state.sc);
     
     DxvkShaderStageInfo stageInfo(m_device, layout);
-    stageInfo.addStage(VK_SHADER_STAGE_COMPUTE_BIT, 
-      m_shaders.cs->getCode(m_layout.getBindingMap(DxvkPipelineLayoutType::Merged), nullptr),
-      &scState.scInfo);
+    auto code = m_shaders.cs->getCode(m_layout.getBindingMap(DxvkPipelineLayoutType::Merged), nullptr);
+    bool target = m_shaders.cs->debugName() == "cs.dc7f676e3aecffe80400e61bf8a09e06"
+               && env::getExeName() == "DropDuchy-Win64-Shipping.exe";
+    if (target) {
+      Logger::info(str::format("Compute literal local size applied: ", useLiteralLocalSize(code)));
+    }
+    stageInfo.addStage(VK_SHADER_STAGE_COMPUTE_BIT, std::move(code), &scState.scInfo);
 
     VkPipelineCreateFlags2CreateInfo flags = { VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO };
 
@@ -116,12 +151,23 @@ namespace dxvk {
     info.layout               = layout->getPipelineLayout();
     info.basePipelineIndex    = -1;
 
+    // Request a cheaper driver compile for the specialized pipeline that stalls.
+    if (target) {
+      if (flags.flags)
+        flags.flags |= VK_PIPELINE_CREATE_DISABLE_OPTIMIZATION_BIT;
+      else
+        info.flags |= VK_PIPELINE_CREATE_DISABLE_OPTIMIZATION_BIT;
+    }
+
     if (flags.flags)
       flags.pNext = std::exchange(info.pNext, &flags);
 
     VkPipeline pipeline = VK_NULL_HANDLE;
+    const auto trace = str::format("specialized shader=", m_shaders.cs->debugName(), " thread=", dxvk::this_thread::get_id());
+    Logger::info(str::format("Compute pipeline begin: ", trace));
     VkResult vr = vk->vkCreateComputePipelines(vk->device(),
           VK_NULL_HANDLE, 1, &info, nullptr, &pipeline);
+    Logger::info(str::format("Compute pipeline end: ", trace, " result=", vr));
 
     if (vr != VK_SUCCESS) {
       Logger::err(str::format("DxvkComputePipeline: Failed to compile pipeline: ", vr));
