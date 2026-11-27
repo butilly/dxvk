@@ -93,27 +93,31 @@ namespace dxvk {
   }
   
   
-  // lowerBgraUavAccess emits zero-default u32 SpecIds 1 and 2. The
-  // instance cache already keys on their values, so materializing the
-  // bound masks here preserves channel order on each cached variant.
-  static bool bakeBgraMask(SpirvCodeBuffer& code, uint32_t slot, uint32_t value) {
-    for (auto decoration : code) {
-      if (decoration.opCode() != spv::OpDecorate
-       || decoration.arg(2) != spv::DecorationSpecId || decoration.arg(3) != slot)
+  // Some compilers take a different path for LocalSizeId even when all
+  // three dimensions are ordinary constants. Preserve their exact values.
+  static bool useLiteralLocalSize(SpirvCodeBuffer& code) {
+    for (auto mode : code) {
+      if (mode.opCode() != spv::OpExecutionModeId || mode.length() != 6
+       || mode.arg(2) != spv::ExecutionModeLocalSizeId)
         continue;
 
+      uint32_t dims[3] = {};
       for (auto constant : code) {
-        if (constant.opCode() != spv::OpSpecConstant || constant.length() != 4
-         || constant.arg(2) != decoration.arg(1))
+        if (constant.opCode() != spv::OpConstant || constant.length() != 4)
           continue;
-
-        constant.setArg(0, (4u << spv::WordCountShift) | spv::OpConstant);
-        constant.setArg(3, value);
-        code.beginInsertion(decoration.offset());
-        code.erase(decoration.length());
-        code.endInsertion();
-        return true;
+        for (uint32_t i = 0; i < 3; i++) {
+          if (mode.arg(3 + i) == constant.arg(2))
+            dims[i] = constant.arg(3);
+        }
       }
+      if (!dims[0] || !dims[1] || !dims[2])
+        return false;
+
+      mode.setArg(0, (6u << spv::WordCountShift) | spv::OpExecutionMode);
+      mode.setArg(2, spv::ExecutionModeLocalSize);
+      for (uint32_t i = 0; i < 3; i++)
+        mode.setArg(3 + i, dims[i]);
+      return true;
     }
     return false;
   }
@@ -130,10 +134,7 @@ namespace dxvk {
     bool target = m_shaders.cs->debugName() == "cs.dc7f676e3aecffe80400e61bf8a09e06"
                && env::getExeName() == "DropDuchy-Win64-Shipping.exe";
     if (target) {
-      uint32_t baked = 0;
-      for (uint32_t slot : { 1u, 2u })
-        baked += bakeBgraMask(code, slot, state.sc.specConstants[slot]);
-      Logger::info(str::format("Compute BGRA masks baked: ", baked));
+      Logger::info(str::format("Compute literal local size applied: ", useLiteralLocalSize(code)));
     }
     stageInfo.addStage(VK_SHADER_STAGE_COMPUTE_BIT, std::move(code), &scState.scInfo);
 
