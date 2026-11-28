@@ -1,4 +1,5 @@
 #include <algorithm>
+#include "d3d11_scene_trace.h"
 
 #include "d3d11_context.h"
 #include "d3d11_context_def.h"
@@ -998,6 +999,8 @@ namespace dxvk {
   template<typename ContextType>
   void STDMETHODCALLTYPE D3D11CommonContext<ContextType>::DrawAuto() {
     D3D10DeviceLock lock = LockContext();
+    sceneTrace::draw(IsDeferred, m_state.vs != nullptr, m_state.om.rtvs[0] != nullptr,
+      __builtin_return_address(0));
 
     D3D11Buffer* buffer = m_state.ia.vertexBuffers[0].buffer.ptr();
 
@@ -1038,6 +1041,8 @@ namespace dxvk {
           UINT            VertexCount,
           UINT            StartVertexLocation) {
     D3D10DeviceLock lock = LockContext();
+    sceneTrace::draw(IsDeferred, m_state.vs != nullptr, m_state.om.rtvs[0] != nullptr,
+      __builtin_return_address(0));
 
     if (unlikely(!VertexCount))
       return;
@@ -1058,6 +1063,8 @@ namespace dxvk {
           UINT            StartIndexLocation,
           INT             BaseVertexLocation) {
     D3D10DeviceLock lock = LockContext();
+    sceneTrace::draw(IsDeferred, m_state.vs != nullptr, m_state.om.rtvs[0] != nullptr,
+      __builtin_return_address(0));
 
     if (unlikely(!IndexCount))
       return;
@@ -1080,6 +1087,8 @@ namespace dxvk {
           UINT            StartVertexLocation,
           UINT            StartInstanceLocation) {
     D3D10DeviceLock lock = LockContext();
+    sceneTrace::draw(IsDeferred, m_state.vs != nullptr, m_state.om.rtvs[0] != nullptr,
+      __builtin_return_address(0));
 
     if (unlikely(!VertexCountPerInstance || !InstanceCount))
       return;
@@ -1102,6 +1111,8 @@ namespace dxvk {
           INT             BaseVertexLocation,
           UINT            StartInstanceLocation) {
     D3D10DeviceLock lock = LockContext();
+    sceneTrace::draw(IsDeferred, m_state.vs != nullptr, m_state.om.rtvs[0] != nullptr,
+      __builtin_return_address(0));
 
     if (unlikely(!IndexCountPerInstance || !InstanceCount))
       return;
@@ -1122,6 +1133,8 @@ namespace dxvk {
           ID3D11Buffer*   pBufferForArgs,
           UINT            AlignedByteOffsetForArgs) {
     D3D10DeviceLock lock = LockContext();
+    sceneTrace::draw(IsDeferred, m_state.vs != nullptr, m_state.om.rtvs[0] != nullptr,
+      __builtin_return_address(0));
     SetDrawBuffers(pBufferForArgs, nullptr);
 
     if (unlikely(HasDirtyGraphicsBindings()))
@@ -1157,6 +1170,8 @@ namespace dxvk {
           ID3D11Buffer*   pBufferForArgs,
           UINT            AlignedByteOffsetForArgs) {
     D3D10DeviceLock lock = LockContext();
+    sceneTrace::draw(IsDeferred, m_state.vs != nullptr, m_state.om.rtvs[0] != nullptr,
+      __builtin_return_address(0));
     SetDrawBuffers(pBufferForArgs, nullptr);
 
     if (unlikely(HasDirtyGraphicsBindings()))

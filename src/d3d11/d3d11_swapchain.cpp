@@ -1,4 +1,5 @@
 #include "d3d11_context_imm.h"
+#include "d3d11_scene_trace.h"
 #include "d3d11_device.h"
 #include "d3d11_swapchain.h"
 
@@ -277,6 +278,19 @@ namespace dxvk {
 
     try {
       hr = PresentImage(SyncInterval, pPresentParameters);
+      if (sceneTrace::enabled()) {
+        uint64_t frame = ++sceneTrace::presents;
+        if (frame <= 3 || (frame <= 14400 && frame % 120 == 0)) {
+          auto stats = m_device->getStatCounters();
+          Logger::info(str::format("SceneTrace present=", frame, " hr=", hr,
+            " immediate=", sceneTrace::immediate.load(), " deferred=", sceneTrace::deferred.load(),
+            " executeLists=", sceneTrace::lists.load(), " noVS=", sceneTrace::missingVs.load(),
+            " color0=", sceneTrace::colorDraws.load(), " lastCaller=", std::hex, sceneTrace::lastCaller.load(),
+            " noVsCaller=", sceneTrace::lastMissingVsCaller.load(), std::dec,
+            " backendDraw=", stats.getCtr(DxvkStatCounter::CmdDrawCalls),
+            " submit=", stats.getCtr(DxvkStatCounter::QueueSubmitCount)));
+        }
+      }
     } catch (const DxvkError& e) {
       Logger::err(e.message());
       hr = E_FAIL;
