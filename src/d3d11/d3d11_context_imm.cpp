@@ -1,4 +1,5 @@
 #include "d3d11_cmdlist.h"
+#include "d3d11_scene_trace.h"
 #include "d3d11_context_imm.h"
 #include "d3d11_device.h"
 #include "d3d11_fence.h"
@@ -230,6 +231,8 @@ namespace dxvk {
     D3D10DeviceLock lock = LockContext();
 
     auto commandList = static_cast<D3D11CommandList*>(pCommandList);
+    if (sceneTrace::enabled())
+      sceneTrace::lists.fetch_add(1, std::memory_order_relaxed);
 
     // Reset dirty binding tracking before submitting any CS chunks.
     // This is needed so that any submission that might occur during
